@@ -1,0 +1,9 @@
+{
+  "name": "timerRemind",
+  "version": "1.0.0",
+  "description": "退货提醒定时扫描与订阅消息推送",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

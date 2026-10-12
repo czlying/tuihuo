@@ -1,0 +1,59 @@
+/**
+ * 全局样式 —— 设计令牌
+ * 风格：editorial / 杂志编辑风。纸感底色、墨黑文字、细线分隔、大字号数字。
+ * 小程序无法可靠加载外部字体，中文走 PingFang SC，数字靠字号与等宽特性强化账目感。
+ */
+
+page {
+  /* 色板 */
+  --paper: #f7f5f0;        /* 纸感米白，非纯白 */
+  --paper-raise: #fffefb;  /* 略微抬起的表面 */
+  --ink: #1c1b19;          /* 墨黑，主文字 */
+  --ink-2: #6b665e;        /* 次级文字 */
+  --ink-3: #9c968c;        /* 提示文字 */
+  --line: #e2ddd4;         /* 细线 */
+  --line-strong: #cfc8bc;  /* 强调细线 */
+
+  /* 语义色：逾期/临期/安全 */
+  --brick: #b4442f;        /* 逾期、紧急 */
+  --brick-bg: #f6e7e3;
+  --amber: #c8963e;        /* 临期 */
+  --amber-bg: #f9f0de;
+  --moss: #4a6b4a;         /* 已申请、安全 */
+  --moss-bg: #e8eee6;
+
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: 'PingFang SC', 'HarmonyOS Sans SC', 'Noto Sans SC', sans-serif;
+  font-size: 28rpx;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 数字统一使用等宽数字特性，保证账目对齐 */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  letter-spacing: -0.02em;
+}
+
+/* 细线分隔 */
+.hr {
+  height: 1rpx;
+  background-color: var(--line);
+}
+
+/* 通用区块标题：小字号 + 字间距，杂志栏目感 */
+.section-label {
+  font-size: 22rpx;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+}
+
+/* 通用按压反馈 */
+.tap {
+  transition: opacity 0.15s ease;
+}
+.tap:active {
+  opacity: 0.6;
+}

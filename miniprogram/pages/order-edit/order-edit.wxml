@@ -1,0 +1,184 @@
+<view class="page">
+
+  <view wx:if="{{loading}}" class="loading">
+    <text class="loading-text">正在读取…</text>
+  </view>
+
+  <block wx:else>
+
+    <view wx:if="{{errorMsg}}" class="alert">
+      <text class="alert-text">{{errorMsg}}</text>
+    </view>
+
+    <!-- 已申请状态条 -->
+    <view wx:if="{{mode === 'edit' && status === 'applied'}}" class="done-strip">
+      <text class="done-title">已申请退货</text>
+      <text wx:if="{{appliedAtText}}" class="done-date">申请于 {{appliedAtText}}</text>
+    </view>
+
+    <!-- ------------------------------------------------ 商品与平台 -->
+    <view class="field">
+      <text class="field-label">商品名</text>
+      <input
+        class="field-input"
+        value="{{productName}}"
+        placeholder="例如：白色球鞋"
+        placeholder-class="ph"
+        maxlength="40"
+        data-field="productName"
+        bindinput="onFieldInput"
+      />
+    </view>
+
+    <view class="field">
+      <text class="field-label">平台</text>
+      <picker
+        mode="selector"
+        range="{{platformNames}}"
+        value="{{platformIndex}}"
+        bindchange="onPlatformChange"
+      >
+        <view class="field-picker">
+          <text class="{{platform ? 'picker-value' : 'picker-placeholder'}}">
+            {{platform || '选择购买平台'}}
+          </text>
+          <text class="picker-arrow">›</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="field">
+      <text class="field-label">金额</text>
+      <view class="field-money">
+        <text class="money-symbol">¥</text>
+        <input
+          class="money-input num"
+          type="digit"
+          value="{{amountYuan}}"
+          placeholder="0.00"
+          placeholder-class="ph"
+          data-field="amountYuan"
+          bindinput="onFieldInput"
+        />
+      </view>
+    </view>
+
+    <view class="rule"></view>
+
+    <!-- ------------------------------------------------ 时效 -->
+    <view class="field-row">
+      <view class="field field-half field-half-first">
+        <text class="field-label">收货日期</text>
+        <picker mode="date" value="{{receiveDate}}" end="{{today}}" bindchange="onReceiveDateChange">
+          <view class="field-picker">
+            <text class="picker-value num">{{receiveDate}}</text>
+          </view>
+        </picker>
+      </view>
+
+      <view class="field field-half">
+        <text class="field-label">退货天数</text>
+        <view class="stepper">
+          <view class="stepper-btn tap" data-delta="-1" bindtap="onDaysStep">
+            <text>−</text>
+          </view>
+          <text class="stepper-value num">{{returnDays}}</text>
+          <view class="stepper-btn tap" data-delta="1" bindtap="onDaysStep">
+            <text>+</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 最晚可退日：自动算，也能手动改 -->
+    <view class="deadline-box">
+      <view class="deadline-head">
+        <text class="section-label">最晚可退日</text>
+        <text class="deadline-tag {{deadlineOverridden ? 'is-manual' : ''}}">
+          {{deadlineOverridden ? '已手动指定' : '自动计算'}}
+        </text>
+      </view>
+
+      <view class="deadline-body">
+        <picker
+          wx:if="{{deadlineOverridden}}"
+          mode="date"
+          value="{{deadline}}"
+          bindchange="onDeadlineChange"
+        >
+          <text class="deadline-value num">{{deadline}}</text>
+        </picker>
+        <text wx:else class="deadline-value num">{{deadline}}</text>
+
+        <view class="deadline-actions">
+          <picker
+            wx:if="{{!deadlineOverridden}}"
+            mode="date"
+            value="{{deadline}}"
+            bindchange="onDeadlineChange"
+          >
+            <text class="link">改</text>
+          </picker>
+          <text wx:else class="link" bindtap="onResetDeadline">恢复自动</text>
+        </view>
+      </view>
+
+      <text class="deadline-hint">收货日 + {{returnDays}} 天。个别平台规则不同时可手动改。</text>
+    </view>
+
+    <view class="rule"></view>
+
+    <!-- ------------------------------------------------ 备注与凭证 -->
+    <view class="field">
+      <text class="field-label">备注</text>
+      <textarea
+        class="field-textarea"
+        value="{{remark}}"
+        placeholder="退货原因、取件码等"
+        placeholder-class="ph"
+        maxlength="200"
+        data-field="remark"
+        bindinput="onFieldInput"
+      />
+    </view>
+
+    <view class="field">
+      <text class="field-label">凭证</text>
+      <view class="voucher-list">
+        <view wx:for="{{voucher}}" wx:key="*this" class="voucher-item">
+          <image class="voucher-img" src="{{item}}" mode="aspectFill" />
+          <view class="voucher-del tap" data-index="{{index}}" bindtap="onRemoveImage">
+            <text>×</text>
+          </view>
+        </view>
+
+        <view wx:if="{{voucher.length < 3}}" class="voucher-add tap" bindtap="onChooseImage">
+          <text class="voucher-add-plus">+</text>
+          <text class="voucher-add-text">添加</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- ------------------------------------------------ 操作区 -->
+    <view class="actions">
+      <view class="btn-primary tap" bindtap="onSubmit">
+        <text>{{mode === 'edit' ? '保存修改' : '保存'}}</text>
+      </view>
+
+      <view
+        wx:if="{{mode === 'edit' && status !== 'applied'}}"
+        class="btn-secondary tap"
+        bindtap="onMarkApplied"
+      >
+        <text>标记为已申请</text>
+      </view>
+
+      <view wx:if="{{mode === 'edit'}}" class="btn-danger tap" bindtap="onDelete">
+        <text>删除这笔记录</text>
+      </view>
+    </view>
+
+    <view class="bottom-space"></view>
+
+  </block>
+</view>

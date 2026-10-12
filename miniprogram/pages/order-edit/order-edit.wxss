@@ -1,0 +1,339 @@
+/* 录入 / 编辑页 —— 与看板同一套 editorial 语言：细线、下划线输入、克制留白 */
+
+.page {
+  padding: 0 40rpx;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.loading {
+  padding: 200rpx 0;
+  text-align: center;
+}
+.loading-text {
+  font-size: 26rpx;
+  color: var(--ink-3);
+}
+
+.rule {
+  height: 1rpx;
+  background-color: var(--line);
+  margin: 44rpx 0;
+}
+
+/* ------------------------------------------------------------ 字段 */
+.field {
+  padding: 34rpx 0 6rpx;
+}
+
+.field-label {
+  display: block;
+  font-size: 23rpx;
+  color: var(--ink-3);
+  letter-spacing: 0.1em;
+  margin-bottom: 18rpx;
+}
+
+.field-input {
+  width: 100%;
+  font-size: 32rpx;
+  color: var(--ink);
+  padding-bottom: 18rpx;
+  border-bottom: 1rpx solid var(--line);
+}
+
+.ph {
+  color: var(--ink-3);
+  opacity: 0.6;
+}
+
+.field-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 18rpx;
+  border-bottom: 1rpx solid var(--line);
+}
+
+.picker-value {
+  font-size: 32rpx;
+  color: var(--ink);
+}
+
+.picker-placeholder {
+  font-size: 30rpx;
+  color: var(--ink-3);
+  opacity: 0.7;
+}
+
+.picker-arrow {
+  font-size: 34rpx;
+  color: var(--ink-3);
+  line-height: 1;
+}
+
+/* 金额：符号与数字同排，数字大一号 */
+.field-money {
+  display: flex;
+  align-items: baseline;
+  padding-bottom: 18rpx;
+  border-bottom: 1rpx solid var(--line);
+}
+
+.money-symbol {
+  font-size: 30rpx;
+  color: var(--ink-2);
+  margin-right: 12rpx;
+}
+
+.money-input {
+  flex: 1;
+  font-size: 40rpx;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.field-textarea {
+  width: 100%;
+  min-height: 130rpx;
+  font-size: 29rpx;
+  color: var(--ink);
+  line-height: 1.6;
+  padding-bottom: 16rpx;
+  border-bottom: 1rpx solid var(--line);
+  box-sizing: border-box;
+}
+
+/* ------------------------------------------------------------ 并排字段 */
+.field-row {
+  display: flex;
+  align-items: flex-start;
+}
+
+.field-half {
+  flex: 1;
+  min-width: 0;
+}
+/* 用显式类名代替 :first-child —— WXSS 对结构性伪类支持不稳定 */
+.field-half-first {
+  margin-right: 48rpx;
+}
+
+/* 天数步进器 */
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 18rpx;
+  border-bottom: 1rpx solid var(--line);
+}
+
+.stepper-btn {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  border: 1rpx solid var(--line-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+.stepper-value {
+  font-size: 36rpx;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------ 最晚可退日 */
+.deadline-box {
+  margin-top: 46rpx;
+  padding: 32rpx 32rpx 30rpx;
+  background-color: var(--paper-raise);
+  border-left: 6rpx solid var(--ink);
+}
+
+.deadline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18rpx;
+}
+
+.deadline-tag {
+  font-size: 21rpx;
+  color: var(--ink-3);
+  border: 1rpx solid var(--line);
+  padding: 4rpx 14rpx;
+  border-radius: 4rpx;
+}
+.deadline-tag.is-manual {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.deadline-body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.deadline-value {
+  font-size: 44rpx;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.deadline-actions {
+  display: flex;
+  align-items: center;
+}
+
+.link {
+  font-size: 25rpx;
+  color: var(--ink-2);
+  border-bottom: 1rpx solid var(--line-strong);
+  padding-bottom: 2rpx;
+}
+
+.deadline-hint {
+  display: block;
+  margin-top: 18rpx;
+  font-size: 22rpx;
+  color: var(--ink-3);
+  line-height: 1.6;
+}
+
+/* ------------------------------------------------------------ 凭证 */
+/* 凭证列表：用 margin 而非 flex gap —— gap 在低版本基础库上不生效 */
+.voucher-list {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.voucher-item {
+  position: relative;
+  width: 158rpx;
+  height: 158rpx;
+  margin-right: 20rpx;
+  margin-bottom: 20rpx;
+}
+
+.voucher-img {
+  width: 158rpx;
+  height: 158rpx;
+  border-radius: 6rpx;
+  background-color: var(--line);
+}
+
+.voucher-del {
+  position: absolute;
+  top: -12rpx;
+  right: -12rpx;
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background-color: var(--ink);
+  color: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  line-height: 1;
+}
+
+.voucher-add {
+  width: 158rpx;
+  height: 158rpx;
+  border: 1rpx dashed var(--line-strong);
+  border-radius: 6rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20rpx;
+}
+
+.voucher-add-plus {
+  font-size: 40rpx;
+  color: var(--ink-3);
+  line-height: 1;
+}
+
+.voucher-add-text {
+  font-size: 21rpx;
+  color: var(--ink-3);
+  margin-top: 8rpx;
+}
+
+/* ------------------------------------------------------------ 操作区 */
+.actions {
+  margin-top: 64rpx;
+}
+
+.btn-primary {
+  background-color: var(--ink);
+  color: var(--paper);
+  text-align: center;
+  padding: 30rpx 0;
+  border-radius: 6rpx;
+  font-size: 30rpx;
+  letter-spacing: 0.08em;
+}
+
+.btn-secondary {
+  margin-top: 24rpx;
+  border: 1rpx solid var(--line-strong);
+  color: var(--ink);
+  text-align: center;
+  padding: 28rpx 0;
+  border-radius: 6rpx;
+  font-size: 28rpx;
+}
+
+.btn-danger {
+  margin-top: 24rpx;
+  color: var(--brick);
+  text-align: center;
+  padding: 24rpx 0;
+  font-size: 27rpx;
+}
+
+.bottom-space {
+  height: 100rpx;
+}
+
+/* ------------------------------------------------------------ 提示条 */
+.alert {
+  background-color: var(--brick-bg);
+  border-left: 6rpx solid var(--brick);
+  padding: 22rpx 26rpx;
+  margin-top: 32rpx;
+}
+.alert-text {
+  font-size: 25rpx;
+  color: var(--brick);
+  line-height: 1.6;
+}
+
+.done-strip {
+  background-color: var(--moss-bg);
+  border-left: 6rpx solid var(--moss);
+  padding: 22rpx 26rpx;
+  margin-top: 32rpx;
+}
+.done-title {
+  display: block;
+  font-size: 27rpx;
+  color: var(--moss);
+}
+.done-date {
+  display: block;
+  font-size: 23rpx;
+  color: var(--moss);
+  opacity: 0.8;
+  margin-top: 8rpx;
+}

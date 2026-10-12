@@ -1,0 +1,129 @@
+<view class="page">
+
+  <!-- 云开发异常：给出可执行的下一步，而不是一句"加载失败" -->
+  <view wx:if="{{cloudError}}" class="alert">
+    <text class="alert-title">云开发未就绪</text>
+    <text class="alert-body">{{cloudError}}</text>
+    <text class="alert-hint">到微信开发者工具里点顶部「云开发」按钮开通或进入环境即可。</text>
+  </view>
+
+  <!-- 报头：日期 + 栏目名 -->
+  <view class="masthead">
+    <text class="masthead-date num">{{todayLabel}}</text>
+    <text class="masthead-label">退货看板</text>
+  </view>
+
+  <view class="rule"></view>
+
+  <!-- 主数值区：左侧大额独占，右侧竖排小指标，刻意不对称 -->
+  <view class="hero">
+    <view class="hero-main">
+      <text class="hero-kicker">待退总额</text>
+      <view class="hero-amount">
+        <text class="hero-currency">¥</text>
+        <text class="hero-number num">{{pendingAmountText}}</text>
+      </view>
+      <text class="hero-meta">{{pendingCount}} 笔待处理</text>
+    </view>
+
+    <view class="hero-side">
+      <view class="side-item">
+        <text class="side-num num">{{dueThisWeekCount}}</text>
+        <text class="side-label">本周到期</text>
+      </view>
+      <view class="side-sep"></view>
+      <view class="side-item">
+        <text class="side-num num {{overdueCount > 0 ? 'is-danger' : ''}}">{{overdueCount}}</text>
+        <text class="side-label">已逾期</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 逾期金额单独提示：只有真存在逾期时才出现 -->
+  <view wx:if="{{overdueCount > 0}}" class="warn-strip">
+    <text class="warn-text">有 {{overdueCount}} 笔已超最晚可退日，合计 ¥{{overdueAmountText}}</text>
+  </view>
+
+  <view class="rule"></view>
+
+  <!-- 临期名单 -->
+  <view class="section">
+    <view class="section-head">
+      <text class="section-label">临期名单</text>
+      <text wx:if="{{preview.length}}" class="section-hint">按到期日由近到远</text>
+    </view>
+
+    <!-- 加载中 -->
+    <view wx:if="{{loading}}" class="placeholder">
+      <text class="placeholder-text">正在读取…</text>
+    </view>
+
+    <!-- 加载失败 -->
+    <view wx:elif="{{errorMsg}}" class="placeholder">
+      <text class="placeholder-text error">{{errorMsg}}</text>
+      <view class="retry tap" bindtap="onRetry">重试</view>
+    </view>
+
+    <!-- 空态 -->
+    <view wx:elif="{{!preview.length}}" class="empty">
+      <view class="empty-mark"></view>
+      <text class="empty-title">还没有待退的订单</text>
+      <text class="empty-body">把你收到的、可能想退的东西记一笔，到期前这里会提醒你。</text>
+      <view class="empty-cta tap" bindtap="onAdd">记第一笔</view>
+    </view>
+
+    <!-- 名单 -->
+    <block wx:else>
+      <view
+        wx:for="{{preview}}"
+        wx:key="_id"
+        class="row tap {{index === preview.length - 1 ? 'row-last' : ''}}"
+        bindtap="onOpenOrder"
+        data-id="{{item._id}}"
+      >
+        <view class="row-bar bar-{{item.urgency}}"></view>
+
+        <view class="row-body">
+          <view class="row-line1">
+            <text class="row-platform">{{item.platform}}</text>
+            <text class="row-name">{{item.productName}}</text>
+          </view>
+          <view class="row-line2">
+            <text class="row-amount num">¥{{item.amountText}}</text>
+            <text class="row-dot">·</text>
+            <text class="row-deadline">最晚 {{item.deadlineText}}</text>
+          </view>
+        </view>
+
+        <text class="row-countdown txt-{{item.urgency}}">{{item.countdownText}}</text>
+      </view>
+
+      <view wx:if="{{hasMore}}" class="more-note">
+        <text>另有 {{moreCount}} 笔未显示</text>
+      </view>
+    </block>
+  </view>
+
+  <view class="rule"></view>
+
+  <!-- 本月已申请（回收的钱） -->
+  <view class="month">
+    <view class="month-left">
+      <text class="section-label">{{monthLabel}}</text>
+      <text class="month-title">已申请退货</text>
+    </view>
+    <view class="month-right">
+      <text class="month-amount num">¥{{appliedAmountText}}</text>
+      <text class="month-count">{{appliedCountThisMonth}} 笔</text>
+    </view>
+  </view>
+
+  <view class="bottom-space"></view>
+
+  <!-- 悬浮录入入口 -->
+  <view class="fab tap" bindtap="onAdd">
+    <text class="fab-plus">+</text>
+    <text class="fab-text">记一笔</text>
+  </view>
+
+</view>

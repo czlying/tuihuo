@@ -1,0 +1,23 @@
+# ===== 依赖（云函数依赖云端安装，不入库） =====
+node_modules/
+cloudfunctions/*/node_modules/
+miniprogram_npm/
+
+# ===== 微信开发者工具私有配置（含本机 appid / 绝对路径，机器相关） =====
+project.private.config.json
+
+# ===== 工具 / 编辑器本地数据 =====
+.workbuddy/
+.project
+.settings/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+
+# ===== 日志 =====
+*.log

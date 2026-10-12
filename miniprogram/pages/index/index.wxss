@@ -1,0 +1,404 @@
+/* 首页看板 —— editorial 版面感：大字、细线、克制留白 */
+
+.page {
+  padding: 0 40rpx;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* ------------------------------------------------------------ 报头 */
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 36rpx 0 22rpx;
+}
+.masthead-date {
+  font-size: 24rpx;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+.masthead-label {
+  font-size: 22rpx;
+  color: var(--ink-3);
+  letter-spacing: 0.28em;
+}
+
+.rule {
+  height: 1rpx;
+  background-color: var(--line);
+}
+
+/* ------------------------------------------------------------ 主数值区 */
+.hero {
+  display: flex;
+  align-items: stretch;
+  padding: 48rpx 0 40rpx;
+}
+
+.hero-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.hero-kicker {
+  display: block;
+  font-size: 24rpx;
+  color: var(--ink-2);
+  letter-spacing: 0.08em;
+}
+
+.hero-amount {
+  display: flex;
+  align-items: flex-start;
+  margin: 14rpx 0 10rpx;
+}
+
+.hero-currency {
+  font-size: 36rpx;
+  color: var(--ink);
+  margin-top: 12rpx;
+  margin-right: 6rpx;
+}
+
+.hero-number {
+  font-size: 72rpx;
+  font-weight: 500;
+  line-height: 1.05;
+  color: var(--ink);
+  letter-spacing: -0.03em;
+}
+
+.hero-meta {
+  font-size: 24rpx;
+  color: var(--ink-3);
+}
+
+/* 右侧竖排小指标，用一条细线与左侧大数隔开 */
+.hero-side {
+  width: 190rpx;
+  border-left: 1rpx solid var(--line);
+  padding-left: 32rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.side-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.side-sep {
+  height: 1rpx;
+  background-color: var(--line);
+  margin: 24rpx 0;
+}
+
+.side-num {
+  font-size: 44rpx;
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.side-num.is-danger {
+  color: var(--brick);
+}
+
+.side-label {
+  font-size: 22rpx;
+  color: var(--ink-3);
+  margin-top: 6rpx;
+  letter-spacing: 0.04em;
+}
+
+/* ------------------------------------------------------------ 逾期提示条 */
+.warn-strip {
+  background-color: var(--brick-bg);
+  border-left: 6rpx solid var(--brick);
+  padding: 20rpx 24rpx;
+  margin-bottom: 36rpx;
+}
+.warn-text {
+  font-size: 25rpx;
+  color: var(--brick);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------ 区块 */
+.section {
+  padding: 40rpx 0 24rpx;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8rpx;
+}
+
+.section-hint {
+  font-size: 22rpx;
+  color: var(--ink-3);
+}
+
+/* ------------------------------------------------------------ 名单行 */
+.row {
+  display: flex;
+  align-items: stretch;
+  padding: 26rpx 0;
+  border-bottom: 1rpx solid var(--line);
+}
+
+/* 最后一行不要下边框：WXSS 对 :last-child 支持不稳，改由 JS 侧加类名 */
+.row-last {
+  border-bottom: none;
+}
+
+/* 左侧色条编码紧急度，替代传统的彩色标签块 */
+.row-bar {
+  width: 6rpx;
+  border-radius: 3rpx;
+  margin-right: 22rpx;
+  flex-shrink: 0;
+}
+.bar-overdue {
+  background-color: var(--brick);
+}
+.bar-today {
+  background-color: var(--brick);
+  opacity: 0.72;
+}
+.bar-urgent {
+  background-color: var(--amber);
+}
+.bar-normal {
+  background-color: var(--line-strong);
+}
+
+.row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-line1 {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10rpx;
+}
+
+.row-platform {
+  font-size: 22rpx;
+  color: var(--ink-2);
+  background-color: rgba(28, 27, 25, 0.05);
+  padding: 2rpx 12rpx;
+  border-radius: 4rpx;
+  margin-right: 14rpx;
+  flex-shrink: 0;
+}
+
+.row-name {
+  font-size: 29rpx;
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.row-line2 {
+  display: flex;
+  align-items: center;
+  font-size: 23rpx;
+  color: var(--ink-3);
+}
+
+.row-amount {
+  font-size: 27rpx;
+  color: var(--ink-2);
+}
+
+.row-dot {
+  margin: 0 10rpx;
+}
+
+.row-countdown {
+  font-size: 25rpx;
+  align-self: center;
+  flex-shrink: 0;
+  margin-left: 20rpx;
+  text-align: right;
+}
+.txt-overdue {
+  color: var(--brick);
+  font-weight: 500;
+}
+.txt-today {
+  color: var(--brick);
+}
+.txt-urgent {
+  color: var(--amber);
+}
+.txt-normal {
+  color: var(--ink-3);
+}
+
+.more-note {
+  padding-top: 24rpx;
+  font-size: 23rpx;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------ 空态 / 占位 */
+.placeholder {
+  padding: 70rpx 0;
+  text-align: center;
+}
+.placeholder-text {
+  font-size: 26rpx;
+  color: var(--ink-3);
+}
+.placeholder-text.error {
+  color: var(--brick);
+  display: block;
+  line-height: 1.6;
+}
+.retry {
+  display: inline-block;
+  margin-top: 26rpx;
+  font-size: 25rpx;
+  color: var(--ink);
+  border-bottom: 1rpx solid var(--ink);
+  padding-bottom: 4rpx;
+}
+
+.empty {
+  padding: 76rpx 0 60rpx;
+  text-align: center;
+}
+.empty-mark {
+  width: 76rpx;
+  height: 76rpx;
+  border: 1rpx solid var(--line-strong);
+  border-radius: 50%;
+  margin: 0 auto 30rpx;
+  position: relative;
+}
+.empty-mark::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30rpx;
+  height: 1rpx;
+  background-color: var(--line-strong);
+  transform: translate(-50%, -50%);
+}
+.empty-title {
+  display: block;
+  font-size: 30rpx;
+  color: var(--ink);
+  margin-bottom: 14rpx;
+}
+.empty-body {
+  display: block;
+  font-size: 24rpx;
+  color: var(--ink-3);
+  line-height: 1.7;
+  padding: 0 40rpx;
+}
+.empty-cta {
+  display: inline-block;
+  margin-top: 40rpx;
+  font-size: 27rpx;
+  color: var(--paper);
+  background-color: var(--ink);
+  padding: 20rpx 56rpx;
+  border-radius: 6rpx;
+}
+
+/* ------------------------------------------------------------ 本月已申请 */
+.month {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 40rpx 0 20rpx;
+}
+.month-left {
+  display: flex;
+  flex-direction: column;
+}
+.month-title {
+  font-size: 29rpx;
+  color: var(--ink);
+  margin-top: 12rpx;
+}
+.month-right {
+  text-align: right;
+}
+.month-amount {
+  display: block;
+  font-size: 40rpx;
+  font-weight: 500;
+  color: var(--moss);
+  line-height: 1.2;
+}
+.month-count {
+  font-size: 22rpx;
+  color: var(--ink-3);
+}
+
+.bottom-space {
+  height: 220rpx;
+}
+
+/* ------------------------------------------------------------ 悬浮录入 */
+.fab {
+  position: fixed;
+  right: 40rpx;
+  bottom: calc(60rpx + constant(safe-area-inset-bottom));
+  bottom: calc(60rpx + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  background-color: var(--ink);
+  color: var(--paper);
+  padding: 24rpx 40rpx;
+  border-radius: 999rpx;
+}
+.fab-plus {
+  font-size: 34rpx;
+  line-height: 1;
+  margin-right: 12rpx;
+  margin-top: -4rpx;
+}
+.fab-text {
+  font-size: 28rpx;
+  letter-spacing: 0.04em;
+}
+
+/* ------------------------------------------------------------ 异常提示 */
+.alert {
+  background-color: var(--brick-bg);
+  border-left: 6rpx solid var(--brick);
+  padding: 26rpx 28rpx;
+  margin-top: 32rpx;
+}
+.alert-title {
+  display: block;
+  font-size: 28rpx;
+  color: var(--brick);
+  margin-bottom: 10rpx;
+}
+.alert-body {
+  display: block;
+  font-size: 24rpx;
+  color: var(--brick);
+  line-height: 1.6;
+}
+.alert-hint {
+  display: block;
+  font-size: 23rpx;
+  color: var(--ink-2);
+  line-height: 1.6;
+  margin-top: 12rpx;
+}

@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "退货提醒",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#F7F5F0",
+  "usingComponents": {}
+}
