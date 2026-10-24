@@ -1,0 +1,20 @@
+<view wx:if="{{visible}}" class="pt-mask" catchtouchmove="noop" catchtap="onCancel">
+  <view class="pt-sheet" catchtap="noop">
+    <view class="pt-title">选择上门取件时间</view>
+
+    <view class="pt-row">
+      <picker mode="date" value="{{date}}" start="{{minDate}}" end="{{maxDate}}" bindchange="onDateChange">
+        <view class="pt-value num">{{date}}</view>
+      </picker>
+      <picker mode="time" value="{{time}}" bindchange="onTimeChange">
+        <view class="pt-value num">{{time}}</view>
+      </picker>
+    </view>
+
+
+    <view class="pt-actions">
+      <view class="pt-btn pt-cancel tap" catchtap="onCancel">取消</view>
+      <view class="pt-btn pt-confirm tap" catchtap="onConfirm">确认</view>
+    </view>
+  </view>
+</view>

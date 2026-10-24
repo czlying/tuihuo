@@ -13,6 +13,13 @@
  *              v1 里 uid === openid；v2 接独立 App 时 uid 改为自建用户 ID，
  *              这里换成查 users 集合即可，前端不用改。
  *
+ *   horoscope —— 今日双鱼座运势（聚合数据代理）。
+ *              Key 从环境变量 JUHE_KEY 读，绝不出现在前端；
+ *              失败时前端保持静态兜底文案，不白屏不报错。
+ *
+ *   horoscopeProbe —— 运势接口自检：返回 Key 是否读到、HTTP 状态、
+ *              聚合数据错误码与中文结论。用于排查「配置了为什么没生效」。
+ *
  * 安全约定（重要）：
  *   任何动作都不能相信前端传来的 uid / openid。
  *   用户身份一律取 cloud.getWXContext()，这是微信在服务端注入的，无法伪造。
@@ -22,6 +29,37 @@
 const cloud = require('wx-server-sdk');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
+
+// OCR 纯逻辑（字段抽取），独立文件便于测试
+const ocr = require('./ocr');
+// 星座运势（聚合数据代理）：纯逻辑 + 请求，独立文件便于 Node 测试
+const horoscope = require('./horoscope');
+
+let _ocrClient = null;
+
+/** 复用 OCR client，避免每次调用重新初始化 SDK */
+function getOcrClient(secretId, secretKey) {
+  if (_ocrClient) return _ocrClient;
+
+  const tencentcloud = require('tencentcloud-sdk-nodejs-ocr');
+  const OcrClient = tencentcloud.ocr.v20181119.Client;
+
+  _ocrClient = new OcrClient({
+    credential: { secretId: secretId, secretKey: secretKey },
+    region: 'ap-guangzhou',
+    profile: {
+      httpProfile: { endpoint: 'ocr.tencentcloudapi.com' },
+    },
+  });
+
+  return _ocrClient;
+}
+
+/** 回退路径：下载云存储图片并转 base64 */
+async function buildBase64Params(fileID) {
+  const download = await cloud.downloadFile({ fileID: fileID });
+  return { ImageBase64: download.fileContent.toString('base64') };
+}
 
 const handlers = {
   /**
@@ -53,6 +91,147 @@ const handlers = {
         service: 'tuihuo-api',
         version: '1.0.0',
         serverTime: new Date().toISOString(),
+      },
+    };
+  },
+
+  /**
+   * 今日双鱼座运势（聚合数据代理）。
+   *
+   * Key 从环境变量 JUHE_KEY 读，绝不出现在前端；前端只请求本动作。
+   * 失败（未配 key / 超时 / 网络 / 接口报错）时返回 ok:false，
+   * 前端保持静态兜底文案，不白屏不报错。
+   *
+   * 返回：{ ok, data: { text } }
+   */
+  async horoscope() {
+    const key = process.env.JUHE_KEY || '';
+    if (!key) {
+      return {
+        ok: false,
+        code: 'FORTUNE_NOT_CONFIGURED',
+        message: '运势接口未配置密钥，请在云函数环境变量中设置 JUHE_KEY',
+      };
+    }
+
+    try {
+      const text = await horoscope.fetchHoroscope({ key: key });
+      return { ok: true, data: { text: text } };
+    } catch (err) {
+      // 失败原因（HTTP 状态 / error_code / reason）带回前端日志，
+      // 否则只看得到「没生效」，无从排查
+      return {
+        ok: false,
+        code: 'FORTUNE_FETCH_FAILED',
+        message: (err && err.message) || '运势接口请求失败',
+      };
+    }
+  },
+
+  /**
+   * 运势接口自检：把「Key 是否读到 / 是否带空格 / HTTP 状态 / 聚合数据错误码」
+   * 摊开返回，并附一句中文结论与下一步操作。设置页一键调用。
+   *
+   * 不返回 Key 本身，只返回长度与是否含首尾空白。
+   * 本动作本身失败（如云端代码未更新）时前端会收到 UNKNOWN_ACTION，
+   * 这正好说明「api 云函数没有重新部署」。
+   */
+  async horoscopeProbe() {
+    const key = process.env.JUHE_KEY || '';
+    const probe = await horoscope.probeHoroscope({ key: key });
+
+    return {
+      ok: true,
+      data: Object.assign({}, probe, {
+        conclusion: horoscope.buildProbeConclusion(probe),
+      }),
+    };
+  },
+
+  /**
+   * OCR 识别订单截图。
+   *
+   * 入参：event.fileID —— 已上传到云存储的图片 fileID。
+   * 流程：临时 URL → 腾讯云 OCR「通用印刷体识别」→ 抽取字段返回；
+   *       URL 拉取失败时回退「下载图片 + base64」，保证识别不中断。
+   * 密钥从环境变量读（OCR_SECRET_ID / OCR_SECRET_KEY），绝不写进代码。
+   *
+   * 返回：{ ok, data: { rawText, productName, amount, date, platform } }
+   *   前端把结果回填表单，由用户核对后保存（识别结果仅作建议）。
+   */
+  async ocrOrder(event, context) {
+    const fileID = (event && event.fileID) || '';
+    if (!fileID) {
+      return { ok: false, code: 'NO_FILE', message: '缺少图片 fileID' };
+    }
+
+    const secretId = process.env.OCR_SECRET_ID || '';
+    const secretKey = process.env.OCR_SECRET_KEY || '';
+    if (!secretId || !secretKey) {
+      return {
+        ok: false,
+        code: 'OCR_NOT_CONFIGURED',
+        message: 'OCR 尚未配置密钥，请在云函数环境变量中设置 OCR_SECRET_ID 与 OCR_SECRET_KEY',
+      };
+    }
+
+    // 1. 优先取临时 URL，让腾讯云 OCR 直接拉图：
+    //    省掉云函数 downloadFile + base64 的额外一跳和内存拷贝
+    let imageUrl = '';
+    try {
+      const urlRes = await cloud.getTempFileURL({ fileList: [fileID] });
+      const first = (urlRes && urlRes.fileList && urlRes.fileList[0]) || null;
+      imageUrl = (first && first.tempFileURL) || '';
+    } catch (err) {
+      console.warn('[ocr] 获取临时 URL 失败，回退 base64', err && err.message);
+    }
+
+    // 2. 调腾讯云 OCR（通用印刷体识别，GeneralBasicOCR）
+    const client = getOcrClient(secretId, secretKey);
+    let resp;
+
+    try {
+      resp = imageUrl
+        ? await client.GeneralBasicOCR({ ImageUrl: imageUrl })
+        : await client.GeneralBasicOCR(await buildBase64Params(fileID));
+    } catch (err) {
+      // ImageUrl 拉取失败（URL 过期/网络）时回退 base64，保证识别不中断
+      if (!imageUrl) throw err;
+      console.warn('[ocr] ImageUrl 识别失败，回退 base64', err && err.message);
+      resp = await client.GeneralBasicOCR(await buildBase64Params(fileID));
+    }
+
+    // 3. 拼接识别出的全部文本
+    const rawText = (resp.TextDetections || [])
+      .map(function (d) { return d.DetectedText || ''; })
+      .join('\n');
+
+    // 4. 平台感知的结构化抽取（平台 + 置信度 + 订单/售后字段）
+    const extracted = ocr.analyzeOrder(rawText);
+
+    return {
+      ok: true,
+      data: {
+        rawText: rawText,
+        ocrVersion: extracted.ruleVersion,
+        productName: extracted.productName,
+        amount: extracted.amount,
+        amountLabel: extracted.amountLabel,
+        date: extracted.date,
+        platform: extracted.platform,
+        platformConfidence: extracted.platformConfidence,
+        pageKind: extracted.pageKind,
+        orderNo: extracted.orderNo,
+        orderNoLabel: extracted.orderNoLabel,
+        orderNoIsFallback: extracted.orderNoIsFallback,
+        returnNo: extracted.returnNo,
+        returnNoLabel: extracted.returnNoLabel,
+        returnReason: extracted.returnReason,
+        pickupCode: extracted.pickupCode,
+        pickupTime: extracted.pickupTime,
+        statusRaw: extracted.statusRaw,
+        statusKey: extracted.statusKey,
+        evidence: extracted.evidence,
       },
     };
   },

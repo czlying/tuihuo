@@ -9,14 +9,50 @@
 /* ------------------------------------------------------------ 报头 */
 .masthead {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   padding: 36rpx 0 22rpx;
+}
+.masthead-title {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.masthead-emoji {
+  font-size: 30rpx;
+  margin-right: 10rpx;
+  line-height: 1;
+}
+.masthead-search {
+  font-size: 28rpx;
+  margin-left: 14rpx;
+  line-height: 1;
+}
+
+.masthead-gear {
+  font-size: 28rpx;
+  margin-left: 14rpx;
+  line-height: 1;
 }
 .masthead-date {
   font-size: 24rpx;
   color: var(--ink-3);
   letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* 日期与「退货看板」之间的专属标识 */
+.masthead-badge {
+  flex-shrink: 0;
+  padding: 4rpx 16rpx;
+  font-size: 18rpx;
+  line-height: 1.4;
+  letter-spacing: 0.12em;
+  color: #c25b7c;
+  background-color: rgba(242, 120, 159, 0.1);
+  border: 1rpx solid rgba(242, 120, 159, 0.22);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
 }
 .masthead-label {
   font-size: 22rpx;
@@ -30,10 +66,11 @@
 }
 
 /* ------------------------------------------------------------ 主数值区 */
+/* 左：金额层级 标题 22 < 数字 68 < 副文案 21；右：运势卡，两栏垂直居中 */
 .hero {
   display: flex;
-  align-items: stretch;
-  padding: 48rpx 0 40rpx;
+  align-items: center;
+  padding: 46rpx 0 38rpx;
 }
 
 .hero-main {
@@ -43,86 +80,136 @@
 
 .hero-kicker {
   display: block;
-  font-size: 24rpx;
-  color: var(--ink-2);
-  letter-spacing: 0.08em;
+  font-size: 22rpx;
+  color: var(--ink-3);
+  letter-spacing: 0.12em;
 }
 
 .hero-amount {
   display: flex;
   align-items: flex-start;
-  margin: 14rpx 0 10rpx;
+  margin: 8rpx 0 8rpx;
 }
 
 .hero-currency {
-  font-size: 36rpx;
-  color: var(--ink);
-  margin-top: 12rpx;
-  margin-right: 6rpx;
+  font-size: 34rpx;
+  color: var(--ink-2);
+  margin-top: 14rpx;
+  margin-right: 4rpx;
 }
 
 .hero-number {
-  font-size: 72rpx;
+  font-size: 68rpx;
   font-weight: 500;
-  line-height: 1.05;
+  line-height: 1.08;
   color: var(--ink);
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
 }
 
 .hero-meta {
-  font-size: 24rpx;
+  font-size: 21rpx;
   color: var(--ink-3);
+  letter-spacing: 0.02em;
 }
 
-/* 右侧竖排小指标，用一条细线与左侧大数隔开 */
+/* 右侧运势卡：细线分隔，垂直居中，与左侧金额同一视觉水平 */
 .hero-side {
-  width: 190rpx;
-  border-left: 1rpx solid var(--line);
-  padding-left: 32rpx;
+  width: 210rpx;
+  border-left: 1rpx solid rgba(178, 91, 120, 0.14);
+  padding-left: 22rpx;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  align-items: center;
 }
 
-.side-item {
-  display: flex;
-  flex-direction: column;
+.fortune-card {
+  width: 100%;
+  padding: 14rpx 12rpx 16rpx;
+  background-color: rgba(255, 248, 251, 0.92);
+  border: 1rpx solid rgba(242, 120, 159, 0.12);
+  border-radius: 18rpx;
+  box-shadow: 0 6rpx 18rpx rgba(206, 122, 152, 0.08);
 }
 
-.side-sep {
-  height: 1rpx;
-  background-color: var(--line);
-  margin: 24rpx 0;
+.fortune-title {
+  display: block;
+  font-size: 18rpx;
+  line-height: 1.4;
+  color: #b87a92;
+  letter-spacing: 0.02em;
 }
 
-.side-num {
-  font-size: 44rpx;
-  font-weight: 500;
-  line-height: 1.1;
-  color: var(--ink);
-}
-.side-num.is-danger {
-  color: var(--brick);
-}
-
-.side-label {
-  font-size: 22rpx;
-  color: var(--ink-3);
-  margin-top: 6rpx;
-  letter-spacing: 0.04em;
-}
-
-/* ------------------------------------------------------------ 逾期提示条 */
-.warn-strip {
-  background-color: var(--brick-bg);
-  border-left: 6rpx solid var(--brick);
-  padding: 20rpx 24rpx;
-  margin-bottom: 36rpx;
-}
-.warn-text {
-  font-size: 25rpx;
-  color: var(--brick);
+/* 摘要按分句拼接，长度已在 JS 侧收敛：一行放得下就是一行，放不下自然换行，不切半个字 */
+/* 文本框尺寸固定三行：超出补「…」，点卡片弹浮层看全文 */
+.fortune-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  max-height: 72rpx;
+  margin-top: 8rpx;
+  font-size: 16rpx;
   line-height: 1.5;
+  color: var(--ink-2);
+  word-break: break-all;
+}
+
+/* ------------------------------------------------------------ 运势全文浮层 */
+.fortune-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 800;
+  background-color: rgba(73, 46, 56, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 64rpx;
+}
+
+.fortune-pop {
+  width: 100%;
+  max-height: 62vh;
+  padding: 32rpx 32rpx 28rpx;
+  background-color: #fff8fb;
+  border-radius: 28rpx;
+  box-shadow: 0 18rpx 48rpx rgba(178, 91, 120, 0.18);
+  display: flex;
+  flex-direction: column;
+}
+
+.fortune-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 18rpx;
+  border-bottom: 1rpx solid rgba(242, 120, 159, 0.16);
+}
+
+.fortune-pop-title {
+  font-size: 28rpx;
+  color: #b87a92;
+  letter-spacing: 0.02em;
+}
+
+.fortune-pop-close {
+  font-size: 26rpx;
+  color: var(--ink-3);
+  padding: 0 6rpx;
+  line-height: 1;
+}
+
+.fortune-pop-body {
+  margin-top: 20rpx;
+  max-height: 46vh;
+}
+
+.fortune-pop-text {
+  font-size: 26rpx;
+  line-height: 1.8;
+  color: var(--ink-2);
+  word-break: break-all;
 }
 
 /* ------------------------------------------------------------ 区块 */
@@ -141,6 +228,42 @@
   font-size: 22rpx;
   color: var(--ink-3);
 }
+.section-side {
+  display: flex;
+  align-items: baseline;
+  flex-shrink: 0;
+}
+.section-amount {
+  font-size: 26rpx;
+  color: var(--ink);
+  margin-right: 12rpx;
+}
+
+/* 列表标题 + 数量徽标 */
+.section-title {
+  display: flex;
+  align-items: center;
+}
+.month-title-row {
+  display: flex;
+  align-items: center;
+}
+.month-title-row .month-title {
+  margin-top: 0;
+}
+.count-badge {
+  margin-left: 12rpx;
+  min-width: 36rpx;
+  padding: 0 10rpx;
+  height: 36rpx;
+  line-height: 36rpx;
+  text-align: center;
+  background-color: var(--candy-1);
+  color: #ffffff;
+  border-radius: var(--radius-pill);
+  font-size: 20rpx;
+  box-sizing: border-box;
+}
 
 /* ------------------------------------------------------------ 名单行 */
 .row {
@@ -153,6 +276,35 @@
 /* 最后一行不要下边框：WXSS 对 :last-child 支持不稳，改由 JS 侧加类名 */
 .row-last {
   border-bottom: none;
+}
+
+/* ------------------------------------------------------------ 左滑删除 */
+.swipe-row {
+  position: relative;
+  overflow: hidden;
+}
+
+.swipe-content {
+  position: relative;
+  z-index: 1;
+  background-color: var(--paper);
+  transition: transform 0.18s ease;
+}
+
+.swipe-delete {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 140rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--brick);
+  color: #ffffff;
+  font-size: 26rpx;
+  letter-spacing: 0.08em;
 }
 
 /* 左侧色条编码紧急度，替代传统的彩色标签块 */
@@ -181,6 +333,32 @@
   min-width: 0;
 }
 
+/* 列表缩略图：点击预览凭证大图 */
+.row-thumb {
+  width: 76rpx;
+  height: 76rpx;
+  margin-right: 16rpx;
+  border-radius: 12rpx;
+  background-color: var(--paper);
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* 无凭证时的占位：保持与有图行同样的宽度，列表不左移 */
+.row-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background-color: rgba(242, 120, 159, 0.06);
+  border: 1rpx dashed rgba(242, 120, 159, 0.28);
+}
+
+.row-thumb-empty text {
+  font-size: 18rpx;
+  color: var(--ink-3, #8a7d83);
+}
+
 .row-line1 {
   display: flex;
   align-items: center;
@@ -190,9 +368,9 @@
 .row-platform {
   font-size: 22rpx;
   color: var(--ink-2);
-  background-color: rgba(28, 27, 25, 0.05);
-  padding: 2rpx 12rpx;
-  border-radius: 4rpx;
+  background-color: rgba(242, 120, 158, 0.12);
+  padding: 4rpx 16rpx;
+  border-radius: var(--radius-pill);
   margin-right: 14rpx;
   flex-shrink: 0;
 }
@@ -207,9 +385,19 @@
 
 .row-line2 {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   font-size: 23rpx;
   color: var(--ink-3);
+}
+
+/* 取件码 + 取件时间：同一行，放不下自动换行 */
+.row-pickup-line {
+  margin-left: 10rpx;
+  font-size: 21rpx;
+  color: #b64f74;
+  line-height: 1.5;
+  word-break: break-all;
 }
 
 .row-amount {
@@ -223,9 +411,6 @@
 
 .row-countdown {
   font-size: 25rpx;
-  align-self: center;
-  flex-shrink: 0;
-  margin-left: 20rpx;
   text-align: right;
 }
 .txt-overdue {
@@ -240,6 +425,31 @@
 }
 .txt-normal {
   color: var(--ink-3);
+}
+
+/* 行右侧纵排：倒计时 + 快捷「标记已申请」 */
+.row-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: 20rpx;
+}
+
+.row-mark {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: var(--ink-2);
+  background-color: var(--paper-raise);
+  border: 1rpx solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  padding: 6rpx 18rpx;
+  line-height: 1.4;
+}
+.row-mark.is-marking {
+  color: var(--ink-3);
+  border-color: var(--line);
 }
 
 .more-note {
@@ -311,10 +521,12 @@
   display: inline-block;
   margin-top: 40rpx;
   font-size: 27rpx;
-  color: var(--paper);
-  background-color: var(--ink);
+  color: #ffffff;
+  background-color: var(--candy-1);
+  background-image: linear-gradient(135deg, var(--candy-1) 0%, var(--candy-2) 100%);
   padding: 20rpx 56rpx;
-  border-radius: 6rpx;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-btn);
 }
 
 /* ------------------------------------------------------------ 本月已申请 */
@@ -333,6 +545,111 @@
   color: var(--ink);
   margin-top: 12rpx;
 }
+.month-hint {
+  font-size: 22rpx;
+  color: var(--ink-3);
+  margin-top: 8rpx;
+}
+
+/* ------------------------------------------------------------ 已申请展开面板 */
+.applied-panel {
+  background-color: var(--paper-raise);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+  padding: 8rpx 28rpx 20rpx;
+  margin-top: 16rpx;
+}
+
+/* 列表搜索框（临期名单 / 已申请共用，胶囊） */
+.list-search {
+  display: flex;
+  align-items: center;
+  margin: 14rpx 0 6rpx;
+  padding: 14rpx 22rpx;
+  background-color: #fff6fa;
+  border: 1rpx solid var(--line);
+  border-radius: var(--radius-pill);
+}
+.list-search-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  color: var(--ink);
+}
+.list-search-ph {
+  color: var(--ink-3);
+  opacity: 0.7;
+}
+.list-search-clear {
+  width: 40rpx;
+  height: 40rpx;
+  margin-left: 12rpx;
+  border-radius: 50%;
+  background-color: var(--line-strong);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26rpx;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.applied-more {
+  padding: 24rpx 0 10rpx;
+  font-size: 23rpx;
+  color: var(--ink-2);
+  line-height: 1.6;
+  text-align: center;
+}
+
+.bar-applied {
+  background-color: var(--moss);
+}
+
+/* 已申请行右侧：状态 + 快捷「取货」 */
+.row-applied-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: 20rpx;
+}
+
+.row-applied-note {
+  font-size: 23rpx;
+  color: var(--moss);
+  align-self: center;
+  flex-shrink: 0;
+  margin-left: 20rpx;
+}
+/* 在已申请行右侧列里：右对齐，去掉左侧间距 */
+.row-applied-side .row-applied-note {
+  align-self: flex-end;
+  margin-left: 0;
+}
+
+.row-pick {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #ffffff;
+  background-color: var(--moss);
+  border-radius: var(--radius-pill);
+  padding: 6rpx 20rpx;
+  line-height: 1.4;
+}
+.row-pick.is-marking {
+  opacity: 0.6;
+}
+
+.applied-empty {
+  padding: 40rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: var(--ink-3);
+}
+
 .month-right {
   text-align: right;
 }
@@ -355,15 +672,18 @@
 /* ------------------------------------------------------------ 悬浮录入 */
 .fab {
   position: fixed;
+  z-index: 20;
   right: 40rpx;
   bottom: calc(60rpx + constant(safe-area-inset-bottom));
   bottom: calc(60rpx + env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
-  background-color: var(--ink);
-  color: var(--paper);
+  background-color: var(--candy-1);
+  background-image: linear-gradient(135deg, var(--candy-1) 0%, var(--candy-2) 100%);
+  color: #ffffff;
   padding: 24rpx 40rpx;
-  border-radius: 999rpx;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-btn);
 }
 .fab-plus {
   font-size: 34rpx;
@@ -382,6 +702,8 @@
   border-left: 6rpx solid var(--brick);
   padding: 26rpx 28rpx;
   margin-top: 32rpx;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
 }
 .alert-title {
   display: block;
@@ -401,4 +723,55 @@
   color: var(--ink-2);
   line-height: 1.6;
   margin-top: 12rpx;
+}
+
+.considering-hint {
+  display: block;
+  margin: 6rpx 0 14rpx;
+  font-size: 22rpx;
+  color: var(--ink-3);
+}
+
+.considering-empty {
+  padding: 28rpx 0;
+}
+
+.collapse-arrow {
+  margin-left: 8rpx;
+  font-size: 20rpx;
+  color: var(--ink-3);
+}
+
+/* 想退货名单下方的今/明到期提醒 */
+.due-strip {
+  display: flex;
+  align-items: center;
+  margin: 10rpx 0 4rpx;
+  padding: 12rpx 18rpx;
+  background-color: rgba(255, 246, 250, 0.86);
+  border: 1rpx solid var(--line);
+  border-radius: var(--radius-pill);
+  font-size: 21rpx;
+  color: var(--ink-3);
+}
+
+.due-title {
+  margin-right: 18rpx;
+  flex-shrink: 0;
+}
+
+.due-item {
+  margin-right: 18rpx;
+  flex-shrink: 0;
+}
+
+.due-num {
+  margin-left: 4rpx;
+  font-size: 24rpx;
+  color: var(--ink-2);
+}
+
+.due-num.is-danger {
+  color: var(--brick);
+  font-weight: 600;
 }

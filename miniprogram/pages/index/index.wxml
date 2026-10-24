@@ -10,7 +10,13 @@
   <!-- 报头：日期 + 栏目名 -->
   <view class="masthead">
     <text class="masthead-date num">{{todayLabel}}</text>
-    <text class="masthead-label">退货看板</text>
+    <text class="masthead-badge">Anne专属</text>
+    <view class="masthead-title">
+      <text class="masthead-emoji">🧸</text>
+      <text class="masthead-label">退货看板</text>
+      <text class="masthead-search tap" bindtap="onOpenSearch">🔍</text>
+      <text class="masthead-gear tap" bindtap="onOpenSettings">⚙️</text>
+    </view>
   </view>
 
   <view class="rule"></view>
@@ -18,39 +24,161 @@
   <!-- 主数值区：左侧大额独占，右侧竖排小指标，刻意不对称 -->
   <view class="hero">
     <view class="hero-main">
-      <text class="hero-kicker">待退总额</text>
+      <text class="hero-kicker">全部总额</text>
       <view class="hero-amount">
         <text class="hero-currency">¥</text>
-        <text class="hero-number num">{{pendingAmountText}}</text>
+        <text class="hero-number num">{{totalAmountText}}</text>
       </view>
-      <text class="hero-meta">{{pendingCount}} 笔待处理</text>
+      <text class="hero-meta">共 {{totalCount}} 笔（四个名单合计）</text>
     </view>
 
     <view class="hero-side">
-      <view class="side-item">
-        <text class="side-num num">{{dueThisWeekCount}}</text>
-        <text class="side-label">本周到期</text>
-      </view>
-      <view class="side-sep"></view>
-      <view class="side-item">
-        <text class="side-num num {{overdueCount > 0 ? 'is-danger' : ''}}">{{overdueCount}}</text>
-        <text class="side-label">已逾期</text>
+      <view class="fortune-card tap" bindtap="onOpenFortune">
+        <text class="fortune-title">今日双鱼运势</text>
+        <text class="fortune-text">{{fortunePeek}}</text>
       </view>
     </view>
   </view>
 
-  <!-- 逾期金额单独提示：只有真存在逾期时才出现 -->
-  <view wx:if="{{overdueCount > 0}}" class="warn-strip">
-    <text class="warn-text">有 {{overdueCount}} 笔已超最晚可退日，合计 ¥{{overdueAmountText}}</text>
+  <!-- 运势全文浮层：点空白或关闭按钮收起 -->
+  <view
+    wx:if="{{fortuneOpen}}"
+    class="fortune-mask"
+    bindtap="onCloseFortune"
+    catchtouchmove="onFortunePopTap"
+  >
+    <view class="fortune-pop" catchtap="onFortunePopTap">
+      <view class="fortune-pop-head">
+        <text class="fortune-pop-title">今日双鱼座运势</text>
+        <text class="fortune-pop-close" bindtap="onCloseFortune">✕</text>
+      </view>
+      <scroll-view scroll-y class="fortune-pop-body">
+        <text class="fortune-pop-text">{{fortuneText}}</text>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 三个名单的今/明到期提醒 -->
+  <view class="due-strip">
+    <text class="due-title">今/明到期</text>
+    <view class="due-item">
+      <text>想退</text>
+      <text class="due-num {{pendingDueSoonCount > 0 ? 'is-danger' : ''}}">{{pendingDueSoonCount}}</text>
+    </view>
+    <view class="due-item">
+      <text>退货</text>
+      <text class="due-num {{decidedDueSoonCount > 0 ? 'is-danger' : ''}}">{{decidedDueSoonCount}}</text>
+    </view>
+    <view class="due-item">
+      <text>上门取件</text>
+      <text class="due-num {{pickupDueSoonCount > 0 ? 'is-danger' : ''}}">{{pickupDueSoonCount}}</text>
+    </view>
   </view>
 
   <view class="rule"></view>
 
-  <!-- 临期名单 -->
+  <!-- 想退货名单：犹豫中，尚未决定退 -->
   <view class="section">
-    <view class="section-head">
-      <text class="section-label">临期名单</text>
-      <text wx:if="{{preview.length}}" class="section-hint">按到期日由近到远</text>
+    <view class="section-head tap" bindtap="onToggleConsidering">
+      <view class="section-title">
+        <text class="section-label">想退货名单</text>
+        <text class="count-badge">{{consideringCount}}</text>
+        <text class="collapse-arrow">{{consideringExpanded ? '▾' : '▸'}}</text>
+      </view>
+      <view class="section-side">
+        <text class="section-amount num">¥{{consideringAmountText}}</text>
+        <text class="section-hint">{{consideringCount}} 笔</text>
+      </view>
+    </view>
+
+    <block wx:if="{{consideringExpanded}}">
+    <text class="considering-hint">还在犹豫的订单；决定退后再到退货名单标记上门取件。</text>
+
+    <view wx:if="{{!consideringPreview.length}}" class="empty considering-empty">
+      <text class="empty-title">还没有想退货的订单</text>
+      <text class="empty-body">新建订单时勾选「想退货」，就会出现在这里。</text>
+    </view>
+
+    <block wx:else>
+      <view wx:for="{{consideringPreview}}" wx:key="_id" class="swipe-row">
+        <view
+          class="row tap swipe-content {{index === consideringPreview.length - 1 ? 'row-last' : ''}}"
+          style="transform: translateX({{swipeId === item._id ? '-140rpx' : '0'}});"
+          bindtap="onOpenOrder"
+          bindtouchstart="onRowTouchStart"
+          bindtouchmove="onRowTouchMove"
+          bindtouchend="onRowTouchEnd"
+          data-id="{{item._id}}"
+        >
+        <view class="row-bar bar-{{item.urgency}}"></view>
+        <image
+          wx:if="{{item.voucher && item.voucher.length}}"
+          class="row-thumb"
+          src="{{item.voucher[0]}}"
+          mode="aspectFill"
+          data-urls="{{item.voucher}}"
+          data-index="0"
+          catchtap="onPreviewVoucher"
+        />
+        <view wx:else class="row-thumb row-thumb-empty"><text>无图</text></view>
+        <view class="row-body">
+          <view class="row-line1">
+            <text class="row-platform">{{item.platform}}</text>
+            <text class="row-name">{{item.productName}}</text>
+          </view>
+          <view class="row-line2">
+            <text class="row-amount num">¥{{item.amountText}}</text>
+            <text class="row-dot">·</text>
+            <text class="row-deadline">最晚 {{item.deadlineText}} {{item.deadlineTime || '00:00:00'}}</text>
+          </view>
+        </view>
+        <view class="row-side">
+          <text class="row-countdown txt-{{item.urgency}}">{{item.countdownText}}</text>
+          <view class="row-mark tap" catchtap="onDecideReturn" data-id="{{item._id}}">决定退</view>
+        </view>
+        </view>
+        <view wx:if="{{swipeId === item._id}}" class="swipe-delete tap" catchtap="onDeleteOrder" data-id="{{item._id}}">删除</view>
+      </view>
+      <view wx:if="{{consideringHasMore}}" class="more-note">
+        <text>另有 {{consideringMoreCount}} 笔未显示</text>
+      </view>
+    </block>
+    </block>
+  </view>
+
+  <view class="rule"></view>
+
+  <!-- 退货名单：已决定退，尚未标记上门取件 -->
+  <view class="section">
+    <view class="section-head tap" bindtap="onTogglePending">
+      <view class="section-title">
+        <text class="section-label">退货名单</text>
+        <text class="count-badge">{{pendingCount}}</text>
+        <text class="collapse-arrow">{{pendingExpanded ? '▾' : '▸'}}</text>
+      </view>
+      <view class="section-side">
+        <text class="section-amount num">¥{{pendingAmountText}}</text>
+        <text wx:if="{{pendingSearching}}" class="section-hint">搜索中…</text>
+        <text wx:else class="section-hint">{{pendingCount}} 笔</text>
+      </view>
+    </view>
+
+    <block wx:if="{{pendingExpanded}}">
+    <!-- 搜索：按商品名或平台筛选 -->
+    <view class="list-search">
+      <input
+        class="list-search-input"
+        value="{{pendingKeyword}}"
+        placeholder="搜商品、平台或订单编号"
+        placeholder-class="list-search-ph"
+        confirm-type="search"
+        maxlength="30"
+        bindinput="onPendingKeywordInput"
+        bindconfirm="onPendingKeywordConfirm"
+      />
+      <view wx:if="{{pendingKeyword}}" class="list-search-clear tap" bindtap="onPendingKeywordClear">
+        <text>×</text>
+      </view>
     </view>
 
     <!-- 加载中 -->
@@ -65,23 +193,45 @@
     </view>
 
     <!-- 空态 -->
-    <view wx:elif="{{!preview.length}}" class="empty">
-      <view class="empty-mark"></view>
-      <text class="empty-title">还没有待退的订单</text>
-      <text class="empty-body">把你收到的、可能想退的东西记一笔，到期前这里会提醒你。</text>
-      <view class="empty-cta tap" bindtap="onAdd">记第一笔</view>
+    <view wx:elif="{{!pendingDisplay.length}}" class="empty">
+      <block wx:if="{{pendingKeyword}}">
+        <text class="empty-title">🔍 没有匹配的退货订单</text>
+        <text class="empty-body">换个商品名或平台关键词试试。</text>
+      </block>
+      <block wx:else>
+        <view class="empty-mark"></view>
+        <text class="empty-title">📦 还没有退货订单</text>
+        <text class="empty-body">把已经决定要退、但还没标记上门取件的东西记一笔。</text>
+        <view class="empty-cta tap" bindtap="onAdd">记第一笔</view>
+      </block>
     </view>
 
     <!-- 名单 -->
     <block wx:else>
-      <view
-        wx:for="{{preview}}"
-        wx:key="_id"
-        class="row tap {{index === preview.length - 1 ? 'row-last' : ''}}"
-        bindtap="onOpenOrder"
-        data-id="{{item._id}}"
-      >
+      <view wx:for="{{pendingDisplay}}" wx:key="_id" class="swipe-row">
+        <view
+          class="row tap swipe-content {{index === pendingDisplay.length - 1 ? 'row-last' : ''}}"
+          style="transform: translateX({{swipeId === item._id ? '-140rpx' : '0'}});"
+          bindtap="onOpenOrder"
+          bindtouchstart="onRowTouchStart"
+          bindtouchmove="onRowTouchMove"
+          bindtouchend="onRowTouchEnd"
+          data-id="{{item._id}}"
+        >
         <view class="row-bar bar-{{item.urgency}}"></view>
+
+        <image
+          wx:if="{{item.voucher && item.voucher.length}}"
+          class="row-thumb"
+          src="{{item.voucher[0]}}"
+          mode="aspectFill"
+          data-urls="{{item.voucher}}"
+          data-index="0"
+          catchtap="onPreviewVoucher"
+        />
+        <view wx:else class="row-thumb row-thumb-empty">
+          <text>无图</text>
+        </view>
 
         <view class="row-body">
           <view class="row-line1">
@@ -91,30 +241,232 @@
           <view class="row-line2">
             <text class="row-amount num">¥{{item.amountText}}</text>
             <text class="row-dot">·</text>
-            <text class="row-deadline">最晚 {{item.deadlineText}}</text>
+            <text class="row-deadline">最晚 {{item.deadlineText}} {{item.deadlineTime || '00:00:00'}}</text>
+            <text wx:if="{{item.pickupCode}}" class="row-pickup">取件码 {{item.pickupCode}}</text>
           </view>
         </view>
 
-        <text class="row-countdown txt-{{item.urgency}}">{{item.countdownText}}</text>
+        <view class="row-side">
+          <text class="row-countdown txt-{{item.urgency}}">{{item.countdownText}}</text>
+          <!-- catchtap：阻止冒泡，避免点按钮时误触进入详情页 -->
+          <view
+            class="row-mark tap"
+            catchtap="onQuickMarkApplied"
+            data-id="{{item._id}}"
+          >
+            标记上门取件
+          </view>
+        </view>
+        </view>
+        <view wx:if="{{swipeId === item._id}}" class="swipe-delete tap" catchtap="onDeleteOrder" data-id="{{item._id}}">删除</view>
       </view>
 
-      <view wx:if="{{hasMore}}" class="more-note">
+      <view wx:if="{{!pendingKeyword && hasMore}}" class="more-note">
         <text>另有 {{moreCount}} 笔未显示</text>
       </view>
+      <view wx:if="{{pendingKeyword && pendingSearchHasMore}}" class="more-note">
+        <text>共 {{pendingSearchTotal}} 笔，仅显示前 {{pendingDisplay.length}} 笔，请输入更精确的关键词</text>
+      </view>
+    </block>
     </block>
   </view>
 
   <view class="rule"></view>
 
-  <!-- 本月已申请（回收的钱） -->
-  <view class="month">
+  <!-- 上门取件（已申请退货）：点开原地向下展开完整列表 -->
+  <view class="month tap" bindtap="onOpenApplied">
     <view class="month-left">
-      <text class="section-label">{{monthLabel}}</text>
-      <text class="month-title">已申请退货</text>
+        <text class="section-label">取件</text>
+        <view class="month-title-row">
+          <text class="month-title">上门取件</text>
+          <text class="count-badge">{{appliedCountAll}}</text>
+        </view>
+        <text class="month-hint">{{appliedExpanded ? '点击收起 ▲' : '点击展开查看全部 ▼'}}</text>
+      </view>
+      <view class="month-right">
+        <text class="month-amount num">¥{{appliedAllText}}</text>
+        <text class="month-count">{{appliedCountAll}} 笔</text>
+      </view>
+  </view>
+
+  <!-- 展开的上门取件列表（原地展开，不跳页） -->
+  <view wx:if="{{appliedExpanded}}" class="applied-panel">
+    <!-- 搜索：按商品名或平台筛选，列表默认最多显示 10 条 -->
+    <view class="list-search">
+      <input
+        class="list-search-input"
+        value="{{appliedKeyword}}"
+        placeholder="搜商品、平台或订单编号"
+        placeholder-class="list-search-ph"
+        confirm-type="search"
+        maxlength="30"
+        bindinput="onAppliedKeywordInput"
+        bindconfirm="onAppliedKeywordConfirm"
+      />
+      <view wx:if="{{appliedKeyword}}" class="list-search-clear tap" bindtap="onAppliedKeywordClear">
+        <text>×</text>
+      </view>
+    </view>
+
+    <view wx:if="{{!appliedList.length}}" class="applied-empty">
+      <text wx:if="{{appliedKeyword}}">没有匹配「{{appliedKeyword}}」的记录</text>
+      <text wx:else>还没有上门取件的记录</text>
+    </view>
+
+    <block wx:else>
+      <view wx:for="{{appliedList}}" wx:key="_id" class="swipe-row">
+        <view
+          class="row tap swipe-content {{index === appliedList.length - 1 ? 'row-last' : ''}}"
+          style="transform: translateX({{swipeId === item._id ? '-140rpx' : '0'}});"
+          bindtap="onOpenAppliedOrder"
+          bindtouchstart="onRowTouchStart"
+          bindtouchmove="onRowTouchMove"
+          bindtouchend="onRowTouchEnd"
+          data-id="{{item._id}}"
+        >
+        <view class="row-bar bar-applied"></view>
+
+        <image
+          wx:if="{{item.voucher && item.voucher.length}}"
+          class="row-thumb"
+          src="{{item.voucher[0]}}"
+          mode="aspectFill"
+          data-urls="{{item.voucher}}"
+          data-index="0"
+          catchtap="onPreviewVoucher"
+        />
+        <view wx:else class="row-thumb row-thumb-empty">
+          <text>无图</text>
+        </view>
+
+        <view class="row-body">
+          <view class="row-line1">
+            <text class="row-platform">{{item.platform}}</text>
+            <text class="row-name">{{item.productName}}</text>
+          </view>
+          <view class="row-line2">
+            <text class="row-amount num">¥{{item.amountText}}</text>
+            <text class="row-dot">·</text>
+            <text class="row-deadline">申请于 {{item.appliedAtText}}</text>
+            <text wx:if="{{item.pickupCode || item.pickupTime}}" class="row-pickup-line">
+              <text wx:if="{{item.pickupCode}}">取件码 {{item.pickupCode}}</text>
+              <text wx:elif="{{item.pickupTime}}">取件码未填</text>
+              <text wx:if="{{item.pickupTime}}"> · 取件 {{item.pickupTime}}</text>
+            </text>
+          </view>
+        </view>
+
+        <view class="row-applied-side">
+          <text class="row-applied-note">待取件</text>
+          <!-- catchtap：阻止冒泡，避免点按钮时误触进入详情页 -->
+          <view
+            class="row-pick tap {{item.marking ? 'is-marking' : ''}}"
+            catchtap="onQuickMarkPicked"
+            data-id="{{item._id}}"
+          >
+            {{item.marking ? '处理中…' : '取货'}}
+          </view>
+        </view>
+        </view>
+        <view wx:if="{{swipeId === item._id}}" class="swipe-delete tap" catchtap="onDeleteOrder" data-id="{{item._id}}">删除</view>
+      </view>
+    </block>
+
+    <view wx:if="{{appliedHasMore}}" class="applied-more tap" bindtap="loadMoreApplied">
+      <text wx:if="{{appliedLoadingMore}}">加载中…</text>
+      <text wx:else>上滑或点击加载更多（已显示 {{appliedList.length}} / {{appliedMatchedCount}} 笔）</text>
+    </view>
+  </view>
+
+  <view class="rule"></view>
+
+  <!-- 已取货：快递员已取走包裹 -->
+  <view class="month tap" bindtap="onOpenPicked">
+    <view class="month-left">
+      <text class="section-label">快递已取走</text>
+      <view class="month-title-row">
+        <text class="month-title">已取货</text>
+        <text class="count-badge">{{pickedCountAll}}</text>
+      </view>
+      <text class="month-hint">{{pickedExpanded ? '点击收起 ▲' : '点击展开查看全部 ▼'}}</text>
     </view>
     <view class="month-right">
-      <text class="month-amount num">¥{{appliedAmountText}}</text>
-      <text class="month-count">{{appliedCountThisMonth}} 笔</text>
+      <text class="month-amount num">¥{{pickedAllText}}</text>
+      <text class="month-count">{{pickedCountAll}} 笔</text>
+    </view>
+  </view>
+
+  <view wx:if="{{pickedExpanded}}" class="applied-panel">
+    <!-- 搜索：按商品名或平台筛选 -->
+    <view class="list-search">
+      <input
+        class="list-search-input"
+        value="{{pickedKeyword}}"
+        placeholder="搜商品、平台或订单编号"
+        placeholder-class="list-search-ph"
+        confirm-type="search"
+        maxlength="30"
+        bindinput="onPickedKeywordInput"
+        bindconfirm="onPickedKeywordConfirm"
+      />
+      <view wx:if="{{pickedKeyword}}" class="list-search-clear tap" bindtap="onPickedKeywordClear">
+        <text>×</text>
+      </view>
+    </view>
+
+    <view wx:if="{{!pickedList.length}}" class="applied-empty">
+      <text wx:if="{{pickedKeyword}}">没有匹配「{{pickedKeyword}}」的记录</text>
+      <text wx:else>还没有已取货的记录</text>
+    </view>
+
+    <block wx:else>
+      <view wx:for="{{pickedList}}" wx:key="_id" class="swipe-row">
+        <view
+          class="row tap swipe-content {{index === pickedList.length - 1 ? 'row-last' : ''}}"
+          style="transform: translateX({{swipeId === item._id ? '-140rpx' : '0'}});"
+          bindtap="onOpenPickedOrder"
+          bindtouchstart="onRowTouchStart"
+          bindtouchmove="onRowTouchMove"
+          bindtouchend="onRowTouchEnd"
+          data-id="{{item._id}}"
+        >
+        <view class="row-bar bar-applied"></view>
+
+        <image
+          wx:if="{{item.voucher && item.voucher.length}}"
+          class="row-thumb"
+          src="{{item.voucher[0]}}"
+          mode="aspectFill"
+          data-urls="{{item.voucher}}"
+          data-index="0"
+          catchtap="onPreviewVoucher"
+        />
+        <view wx:else class="row-thumb row-thumb-empty">
+          <text>无图</text>
+        </view>
+
+        <view class="row-body">
+          <view class="row-line1">
+            <text class="row-platform">{{item.platform}}</text>
+            <text class="row-name">{{item.productName}}</text>
+          </view>
+          <view class="row-line2">
+            <text class="row-amount num">¥{{item.amountText}}</text>
+            <text class="row-dot">·</text>
+            <text class="row-deadline">取货于 {{item.pickedAtText}}</text>
+            <text wx:if="{{item.pickupCode}}" class="row-pickup">取件码 {{item.pickupCode}}</text>
+          </view>
+        </view>
+
+        <text class="row-applied-note">已取货</text>
+        </view>
+        <view wx:if="{{swipeId === item._id}}" class="swipe-delete tap" catchtap="onDeleteOrder" data-id="{{item._id}}">删除</view>
+      </view>
+    </block>
+
+    <view wx:if="{{pickedHasMore}}" class="applied-more tap" bindtap="loadMorePicked">
+      <text wx:if="{{pickedLoadingMore}}">加载中…</text>
+      <text wx:else>上滑或点击加载更多（已显示 {{pickedList.length}} / {{pickedMatchedCount}} 笔）</text>
     </view>
   </view>
 
@@ -125,5 +477,11 @@
     <text class="fab-plus">+</text>
     <text class="fab-text">记一笔</text>
   </view>
+  <pickup-time
+    visible="{{pickupPickerVisible}}"
+    value="{{pickupTimeDraft}}"
+    bind:confirm="onPickupTimeConfirm"
+    bind:cancel="onPickupTimeCancel"
+  />
 
 </view>

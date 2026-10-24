@@ -109,6 +109,51 @@ function resolveRequire(fromFile, spec) {
   return [base, base + '.js', path.join(base, 'index.js')].some((p) => fs.existsSync(p));
 }
 
+
+/**
+ * 页面用到 orderModel.xxx 时必须真实 require models/order。
+ * 漏导入编译不报错，运行时会抛 orderModel is not defined，整页数据加载失败。
+ */
+function hasOrderModelImport(src) {
+  const code = stripComments(src);
+  const uses = /\borderModel\s*\./.test(code);
+  const imports = /require\(['"][^'"]*models\/order['"]\)/.test(code);
+  return !uses || imports;
+}
+
+/** 页面是否直接调用 wx.navigateTo（应统一走 utils/nav.js） */
+function hasBareNavigate(src) {
+  return /\bwx\.navigateTo\s*\(/.test(stripComments(src));
+}
+
+/** 收集所有页面/全局 usingComponents 的引用路径 */
+function collectComponentRefs() {
+  const refs = new Set();
+  walk(MP, '.json').forEach(function (file) {
+    try {
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const map = data && data.usingComponents;
+      if (map && typeof map === 'object') {
+        Object.keys(map).forEach(function (k) {
+          if (map[k]) refs.add(String(map[k]));
+        });
+      }
+    } catch (e) {
+      // JSON 解析失败由其他检查负责
+    }
+  });
+  return refs;
+}
+
+/** 组件名是否被某个 usingComponents 引用 */
+function isComponentReferenced(name, refs) {
+  let hit = false;
+  refs.forEach(function (ref) {
+    if (ref.indexOf('/components/' + name + '/') >= 0 || ref === name) hit = true;
+  });
+  return hit;
+}
+
 // ============================================================ 1. 事件绑定
 console.log('\n[1] WXML 事件绑定 -> JS 方法');
 
@@ -188,8 +233,47 @@ if (fs.existsSync(cfRoot)) {
     });
 }
 
-// ============================================================ 5. 校验器自检
-console.log('\n[5] 校验器自检（用已知错误样本确认检测真的生效）');
+// ============================================================ 5. 页面模型导入
+console.log('\n[5] 页面使用 orderModel 的导入完整性');
+walk(path.join(MP, 'pages'), '.js').forEach(function (file) {
+  if (hasOrderModelImport(fs.readFileSync(file, 'utf8'))) {
+    ok(path.relative(ROOT, file) + ' orderModel 导入检查');
+  } else {
+    fail(path.relative(ROOT, file) + ' 使用 orderModel 但未导入 models/order');
+  }
+});
+
+// ============================================================ 6. 页面跳转收口
+console.log('\n[6] 页面禁止裸 wx.navigateTo');
+walk(path.join(MP, 'pages'), '.js').forEach(function (file) {
+  if (hasBareNavigate(fs.readFileSync(file, 'utf8'))) {
+    fail(path.relative(ROOT, file) + ' 直接调用 wx.navigateTo，请改用 utils/nav.js');
+  } else {
+    ok(path.relative(ROOT, file) + ' 跳转收口检查');
+  }
+});
+
+// ============================================================ 7. 组件引用
+console.log('\n[7] components 下的组件必须被页面引用');
+const componentRefs = collectComponentRefs();
+const componentRoot = path.join(MP, 'components');
+if (fs.existsSync(componentRoot)) {
+  fs.readdirSync(componentRoot, { withFileTypes: true })
+    .filter(function (entry) {
+      return entry.isDirectory();
+    })
+    .forEach(function (entry) {
+      const name = entry.name;
+      if (isComponentReferenced(name, componentRefs)) {
+        ok('components/' + name + ' 已被页面引用');
+      } else {
+        fail('components/' + name + ' 未被任何页面 usingComponents 引用');
+      }
+    });
+}
+
+// ============================================================ 8. 校验器自检
+console.log('\n[8] 校验器自检（用已知错误样本确认检测真的生效）');
 
 (function selfTest() {
   const cases = [];
@@ -239,6 +323,41 @@ console.log('\n[5] 校验器自检（用已知错误样本确认检测真的生�
   cases.push({
     name: '忽略 WXML 注释中的绑定',
     pass: extractHandlers(stripWxmlComments('<!-- bindtap="ghost" -->')).size === 0,
+  });
+
+  cases.push({
+    name: 'orderModel 导入完整',
+    pass: hasOrderModelImport(
+      "const orderModel = require('../../models/order');\norderModel.calcDeadline('2026-01-01', 7);"
+    ),
+  });
+
+  cases.push({
+    name: 'orderModel 漏导入会报警',
+    pass: !hasOrderModelImport("orderModel.calcDeadline('2026-01-01', 7);"),
+  });
+
+  cases.push({
+    name: '能抓出裸 wx.navigateTo',
+    pass: hasBareNavigate("wx.navigateTo({ url: '/pages/search/search' });"),
+  });
+
+  cases.push({
+    name: 'nav.go 不被误报',
+    pass: !hasBareNavigate("nav.go('/pages/search/search');"),
+  });
+
+  cases.push({
+    name: '组件被引用时通过',
+    pass: isComponentReferenced(
+      'pickup-time',
+      new Set(['/components/pickup-time/pickup-time'])
+    ),
+  });
+
+  cases.push({
+    name: '组件零引用时报警',
+    pass: !isComponentReferenced('watermark', new Set(['/components/pickup-time/pickup-time'])),
   });
 
   cases.forEach(function (c) {

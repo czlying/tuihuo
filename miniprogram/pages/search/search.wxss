@@ -1,0 +1,134 @@
+.page {
+  padding: 24rpx 32rpx;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 22rpx;
+  background-color: #fff6fa;
+  border: 1rpx solid var(--line);
+  border-radius: var(--radius-pill);
+}
+
+.search-icon {
+  margin-right: 10rpx;
+  font-size: 24rpx;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  color: var(--ink);
+}
+
+.search-ph {
+  color: var(--ink-3);
+  opacity: 0.7;
+}
+
+.search-clear {
+  width: 40rpx;
+  height: 40rpx;
+  margin-left: 12rpx;
+  border-radius: 50%;
+  background-color: var(--line-strong);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26rpx;
+  line-height: 1;
+}
+
+.search-hint {
+  padding: 80rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: var(--ink-3);
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid var(--line);
+}
+
+.search-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-row-line1 {
+  display: flex;
+  align-items: center;
+}
+
+.search-platform {
+  font-size: 22rpx;
+  color: var(--ink-3);
+  margin-right: 10rpx;
+  flex-shrink: 0;
+}
+
+.search-name {
+  font-size: 27rpx;
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search-row-line2 {
+  display: flex;
+  align-items: center;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: var(--ink-3);
+}
+
+.search-amount {
+  color: var(--ink-2);
+}
+
+.search-dot {
+  margin: 0 8rpx;
+}
+
+.status-applied {
+  color: var(--moss);
+}
+
+.status-picked {
+  color: var(--ink-3);
+}
+
+.search-arrow {
+  margin-left: 16rpx;
+  font-size: 30rpx;
+  color: var(--ink-3);
+}
+
+.search-total {
+  padding: 24rpx 0;
+  text-align: center;
+  font-size: 22rpx;
+  color: var(--ink-3);
+}
+
+.bottom-space {
+  height: 40rpx;
+}
+
+.search-more {
+  margin-top: 24rpx;
+  padding: 20rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: var(--ink-3);
+  border-top: 1rpx solid var(--line);
+}

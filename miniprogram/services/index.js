@@ -14,5 +14,6 @@ module.exports = {
   orders: require('./order.service'),
   settings: require('./settings.service'),
   platform: require('./platform.service'),
+  fortune: require('./fortune.service'),
   adapter: require('./adapters/index'),
 };

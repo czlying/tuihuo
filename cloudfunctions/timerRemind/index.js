@@ -132,7 +132,7 @@ exports.main = async () => {
   const summary = {
     today: today,
     triggeredAt: new Date().toISOString(),
-    quietHourSkipped: false,
+    skippedQuiet: 0,
     scannedOrders: 0,
     candidateOrders: 0,
     sent: 0,
@@ -141,13 +141,6 @@ exports.main = async () => {
     templateConfigured: !!CONFIG.TEMPLATE_ID,
     details: [],
   };
-
-  // F-8：免扰时段内不推送
-  if (remind.isQuietHour(CONFIG.QUIET_HOURS)) {
-    summary.quietHourSkipped = true;
-    console.log('[timerRemind] 处于免扰时段，本轮跳过', CONFIG.QUIET_HOURS);
-    return summary;
-  }
 
   let orders = [];
   try {
@@ -174,6 +167,14 @@ exports.main = async () => {
   for (let i = 0; i < orders.length; i++) {
     const order = orders[i];
     const setting = settingsMap[order._openid] || {};
+
+    // F-8：按用户自己的免打扰时段判断；未设置时退回全局默认
+    const quietHours = setting.quietHours || CONFIG.QUIET_HOURS;
+    if (remind.isQuietHour(quietHours)) {
+      summary.skippedQuiet += 1;
+      continue;
+    }
+
     const advanceDays =
       Array.isArray(setting.remindAdvanceDays) && setting.remindAdvanceDays.length
         ? setting.remindAdvanceDays

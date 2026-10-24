@@ -18,6 +18,9 @@
  *   remove(collection, id)            按 _id 删除
  *   callFunction(name, data)          调用云函数
  *   uploadFile(filePath)              上传文件到云存储
+ *   deleteFile(fileList)              删除云存储文件（单个或数组）
+ *   getTempFileURL(fileList)          云存储 fileID → 临时 HTTPS URL
+ *   stats(collection, options)        按条件聚合出总额与笔数
  * ------------------------------------------------------------------
  */
 
@@ -38,22 +41,67 @@ function getDb() {
 }
 
 /**
+ * 取出错误里所有可能的文本。
+ *
+ * 为什么不能只看 errMsg：云开发的错误没有统一的形状。有时 errMsg 只是
+ * 一句 'collection.get:fail'，真实的 errCode 说明被塞在 message 里；
+ * 只看一个字段会漏判，用户最后拿到的是一句毫无用处的「操作失败，请稍后重试」。
+ */
+function errorText(err) {
+  if (!err) return '';
+  if (typeof err === 'string') return err;
+
+  const parts = [];
+  ['errMsg', 'message', 'error', 'details'].forEach(function (k) {
+    if (err[k]) parts.push(String(err[k]));
+  });
+  return parts.join(' | ');
+}
+
+/**
  * 把云开发抛出的原始错误转成用户能看懂的话。
  * 保留原始错误在 raw 字段里，方便开发者排查。
  */
 function normalizeError(err, action) {
   const raw = err || {};
-  const msg = String(raw.errMsg || raw.message || '');
+  const text = errorText(raw);
+
+  // 错误码未必在顶层字段上，常见的是被拼进 errMsg 字符串里
+  // （形如 'xxx:fail Error: errCode: -501023 permission denied'），
+  // 取不到顶层值时再从文本里捞一次，否则会漏判。
+  const embedded = text.match(/errcode:\s*(-?\d+)/i);
+  const code = Number(
+    raw.errCode !== undefined
+      ? raw.errCode
+      : raw.code !== undefined
+      ? raw.code
+      : embedded
+      ? embedded[1]
+      : NaN
+  );
 
   let friendly = '操作失败，请稍后重试';
 
-  if (msg.indexOf('collection not exists') > -1 || raw.errCode === -502005) {
+  if (code === -501023 || /unauthenticated/i.test(text)) {
+    // -501023：未登录访问被拒。多端应用是独立客户端，没有登录态时必踩。
+    friendly = '未登录，无法访问云数据';
+  } else if (
+    code === -601002 ||
+    /env not exists|environment not found|invalid env/i.test(text)
+  ) {
+    // -601002：环境不存在 / 无访问权限。多端下多半是 appid 与 envid 没配好。
+    friendly = '云环境不可用，请检查环境 ID 与 AppID';
+  } else if (text.indexOf('collection not exists') > -1 || code === -502005) {
     friendly = '云数据库集合不存在，请先在云开发控制台创建集合';
-  } else if (msg.indexOf('permission denied') > -1 || raw.errCode === -502003) {
+  } else if (text.indexOf('permission denied') > -1 || code === -502003) {
     friendly = '没有权限，请检查数据库安全规则是否为「仅创建者可读写」';
-  } else if (msg.indexOf('cloud init') > -1 || msg.indexOf('not initialized') > -1) {
+  } else if (text.indexOf('cloud init') > -1 || text.indexOf('not initialized') > -1) {
     friendly = '云开发未初始化，请确认已开通云开发环境';
-  } else if (msg.indexOf('timeout') > -1 || msg.indexOf('fail') > -1) {
+  } else if (
+    text.indexOf('timeout') > -1 ||
+    text.indexOf('network') > -1 ||
+    /request:fail|uploadFile:fail|downloadFile:fail|callFunction:fail/i.test(text)
+  ) {
     friendly = '网络请求失败，请检查网络后重试';
   }
 
@@ -184,6 +232,39 @@ const adapter = {
     });
   },
 
+  /**
+   * 按条件聚合出「字段总和」与「记录数」，一次查询拿到列表头的两个数字。
+   * 不拉取全量文档，数据量再大也高效；聚合同样受数据库权限约束。
+   *
+   * @param {object} options { where, field }
+   * @returns {Promise<{total:number, count:number}>} total 单位与字段一致（金额为分）
+   */
+  stats(collection, options) {
+    const opts = options || {};
+    return wrap('stats:' + collection, function () {
+      const db = getDb();
+      const $ = db.command.aggregate;
+
+      let agg = db.collection(collection).aggregate();
+      if (opts.where) agg = agg.match(opts.where);
+
+      return agg
+        .group({
+          _id: null,
+          total: $.sum('$' + (opts.field || 'amount')),
+          count: $.sum(1),
+        })
+        .end()
+        .then(function (res) {
+          const row = (res && res.list && res.list[0]) || {};
+          return {
+            total: Number(row.total) || 0,
+            count: Number(row.count) || 0,
+          };
+        });
+    });
+  },
+
   update(collection, id, data) {
     return wrap('update:' + collection, function () {
       return getDb()
@@ -226,7 +307,68 @@ const adapter = {
       return wx.cloud.uploadFile({ cloudPath: cloudPath, filePath: filePath });
     });
   },
+
+  /**
+   * 删除云存储文件。
+   * 入参可为单个 fileID 或数组；空值/非字符串会被过滤。
+   * 返回 { deleted, failed }：文件本来就不存在（STORAGE_FILE_NONEXIST）算已清理，不计失败。
+   * 用于删除订单时清理凭证图（M-2）。
+   */
+  /**
+   * 云存储 fileID 转临时 HTTPS URL。
+   * <image> 可以直接用 cloud:// fileID，但 wx.previewImage 只认 http(s)，
+   * 所以预览前必须转换一次。
+   *
+   * @param {string|string[]} fileList
+   * @returns {Promise<string[]>} 与入参顺序一致；失败的项为空串
+   */
+  getTempFileURL(fileList) {
+    const list = (Array.isArray(fileList) ? fileList : [fileList]).filter(function (f) {
+      return typeof f === 'string' && f;
+    });
+    if (!list.length) return Promise.resolve([]);
+
+    return wrap('getTempFileURL', function () {
+      return wx.cloud.getTempFileURL({ fileList: list }).then(function (res) {
+        const arr = (res && res.fileList) || [];
+        return list.map(function (id) {
+          for (let i = 0; i < arr.length; i++) {
+            if (arr[i] && arr[i].fileID === id) return arr[i].tempFileURL || '';
+          }
+          return '';
+        });
+      });
+    });
+  },
+
+  deleteFile(fileList) {
+    const list = (Array.isArray(fileList) ? fileList : [fileList]).filter(function (f) {
+      return typeof f === 'string' && f;
+    });
+    if (!list.length) return Promise.resolve({ deleted: 0, failed: 0 });
+
+    return wrap('deleteFile', function () {
+      return wx.cloud.deleteFile({ fileList: list }).then(function (res) {
+        const arr = (res && res.fileList) || [];
+        // 结果数组缺失时按全部成功处理（兼容旧基础库）
+        if (!arr.length) return { deleted: list.length, failed: 0 };
+
+        let deleted = 0;
+        let failed = 0;
+        arr.forEach(function (item) {
+          const ok =
+            item && (item.status === 0 || /NONEXIST/i.test(String(item.errMsg || '')));
+          if (ok) deleted += 1;
+          else failed += 1;
+        });
+        return { deleted: deleted, failed: failed };
+      });
+    });
+  },
 };
 
 module.exports = adapter;
 module.exports.CLIENT_PAGE_SIZE = CLIENT_PAGE_SIZE;
+// 错误翻译是不依赖 wx 的纯函数，但译错会直接误导用户（曾把「未登录」
+// 说成「请稍后重试」，导致整条链路无从排查）。导出以便用例锁住它。
+module.exports.normalizeError = normalizeError;

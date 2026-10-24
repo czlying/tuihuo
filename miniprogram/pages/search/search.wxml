@@ -1,0 +1,57 @@
+<view class="page">
+  <view class="search-bar">
+    <text class="search-icon">🔍</text>
+    <input
+      class="search-input"
+      value="{{keyword}}"
+      placeholder="搜商品、平台、订单编号"
+      placeholder-class="search-ph"
+      confirm-type="search"
+      maxlength="40"
+      focus="{{true}}"
+      bindinput="onInput"
+      bindconfirm="onSearch"
+    />
+    <view wx:if="{{keyword}}" class="search-clear tap" bindtap="onClear">
+      <text>×</text>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="search-hint">搜索中…</view>
+  <view wx:elif="{{!results.length}}" class="search-hint">
+    {{keyword ? '没有匹配的订单' : '还没有订单'}}
+  </view>
+
+  <block wx:else>
+    <view
+      wx:for="{{results}}"
+      wx:key="_id"
+      class="search-row tap"
+      bindtap="onOpenOrder"
+      data-id="{{item._id}}"
+    >
+      <view class="search-row-main">
+        <view class="search-row-line1">
+          <text class="search-platform">{{item.platform}}</text>
+          <text class="search-name">{{item.productName}}</text>
+        </view>
+        <view class="search-row-line2">
+          <text class="search-amount num">¥{{item.amountText}}</text>
+          <text class="search-dot">·</text>
+          <text class="search-status status-{{item.status}}">{{item.statusText}}</text>
+          <text class="search-dot">·</text>
+          <text class="search-date">{{item.dateText}}</text>
+        </view>
+      </view>
+      <text class="search-arrow">›</text>
+    </view>
+
+    <view wx:if="{{hasMore}}" class="search-more tap" bindtap="loadMore">
+      {{loadingMore ? '加载中…' : '加载更多'}}
+    </view>
+
+    <view class="search-total">{{totalText}}</view>
+  </block>
+
+  <view class="bottom-space"></view>
+</view>

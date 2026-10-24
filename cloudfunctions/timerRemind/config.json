@@ -8,7 +8,12 @@
     {
       "name": "dailyRemind",
       "type": "timer",
-      "config": "0 0 8 * * * *"
+      "config": "0 0 0 * * * *"
+    },
+    {
+      "name": "dailyRemindBackup",
+      "type": "timer",
+      "config": "0 0 6 * * * *"
     }
   ]
 }

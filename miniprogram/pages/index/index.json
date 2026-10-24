@@ -3,5 +3,7 @@
   "enablePullDownRefresh": true,
   "backgroundTextStyle": "dark",
   "backgroundColor": "#F7F5F0",
-  "usingComponents": {}
+  "usingComponents": {
+    "pickup-time": "/components/pickup-time/pickup-time"
+  }
 }

@@ -5,15 +5,17 @@
 
 const { getAdapter } = require('./adapters/index');
 const { COLLECTIONS } = require('../config/env');
-const { DEFAULT_REMIND_ADVANCE_DAYS } = require('../constants/index');
+const settingsModel = require('../models/settings');
 const { getUid } = require('./order.service');
 
-/** 默认设置，字段缺失时用它兜底 */
+/** 默认设置，字段缺失时用它兜底（统一由 models/settings 提供，避免两处默认值漂移） */
 function defaultSettings() {
+  const d = settingsModel.DEFAULT_SETTINGS;
   return {
-    remindAdvanceDays: DEFAULT_REMIND_ADVANCE_DAYS.slice(),
-    quietHours: { start: '22:00', end: '08:00' },
-    subscribeFlag: false,
+    defaultReturnDays: d.defaultReturnDays,
+    remindAdvanceDays: d.remindAdvanceDays.slice(),
+    quietHours: { start: d.quietHours.start, end: d.quietHours.end },
+    subscribeFlag: d.subscribeFlag,
   };
 }
 

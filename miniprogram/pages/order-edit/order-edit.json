@@ -1,4 +1,6 @@
 {
   "navigationBarTitleText": "记一笔退货",
-  "usingComponents": {}
+  "usingComponents": {
+    "pickup-time": "/components/pickup-time/pickup-time"
+  }
 }

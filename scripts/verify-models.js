@@ -15,6 +15,12 @@ const orderModel = require('../miniprogram/models/order');
 const dateUtil = require('../miniprogram/utils/date');
 const format = require('../miniprogram/utils/format');
 const remind = require('../cloudfunctions/timerRemind/remind');
+const ocr = require('../cloudfunctions/api/ocr');
+const fortune = require('../cloudfunctions/api/horoscope');
+const settingsModel = require('../miniprogram/models/settings');
+const navUtil = require('../miniprogram/utils/nav');
+const fortuneCache = require('../miniprogram/utils/fortune-cache');
+const wxcloud = require('../miniprogram/services/adapters/wxcloud');
 
 let passed = 0;
 let failed = 0;
@@ -207,6 +213,251 @@ check(
     .returnDays,
   7
 );
+// ↓ 退货天数：整数校验与上限（2026-10-19 加固）
+check(
+  "校验：退货天数非整数报错",
+  orderModel.validate(Object.assign({}, validInput, { returnDays: 3.5 })),
+  ['退货天数需为整数']
+);
+check(
+  "校验：退货天数超上限报错",
+  orderModel.validate(Object.assign({}, validInput, { returnDays: 400 })),
+  ['退货天数需在 0–365 天之间']
+);
+check(
+  "校验：退货天数 365 合法",
+  orderModel.validate(Object.assign({}, validInput, { returnDays: 365 })),
+  []
+);
+check(
+  "归一化：退货天数四舍五入",
+  orderModel.normalize(Object.assign({}, validInput, { returnDays: 3.6 }), 'u').returnDays,
+  4
+);
+check(
+  "归一化：退货天数封顶 365",
+  orderModel.normalize(Object.assign({}, validInput, { returnDays: 400 }), 'u').returnDays,
+  365
+);
+check(
+  "归一化：退货天数负数回落默认 7",
+  orderModel.normalize(Object.assign({}, validInput, { returnDays: -5 }), 'u').returnDays,
+  7
+);
+// ↓ 新增字段：退货原因 / 取件码
+check(
+  "归一化保留退货原因",
+  orderModel.normalize(
+    Object.assign({}, validInput, { returnReason: '尺码不合适' }),
+    'u'
+  ).returnReason,
+  '尺码不合适'
+);
+check(
+  "归一化保留取件码",
+  orderModel.normalize(Object.assign({}, validInput, { pickupCode: '8821' }), 'u').pickupCode,
+  '8821'
+);
+check(
+  "归一化保留订单编号",
+  orderModel.normalize(
+    Object.assign({}, validInput, { orderNo: '3316356807100404082' }),
+    'u'
+  ).orderNo,
+  '3316356807100404082'
+);
+check(
+  "归一化：订单编号优先于旧 returnNo",
+  orderModel.normalize(
+    Object.assign({}, validInput, { orderNo: 'NEW123456', returnNo: 'OLD123456' }),
+    'u'
+  ).orderNo,
+  'NEW123456'
+);
+check(
+  "归一化：旧 returnNo 兜底为订单编号",
+  orderModel.normalize(
+    Object.assign({}, validInput, { returnNo: 'VPH20260912ABC88' }),
+    'u'
+  ).orderNo,
+  'VPH20260912ABC88'
+);
+check(
+  "归一化：订单编号去首尾空格",
+  orderModel.normalize(
+    Object.assign({}, validInput, { orderNo: '  3316356807100404082  ' }),
+    'u'
+  ).orderNo,
+  '3316356807100404082'
+);
+check(
+  "展示层：旧记录的 returnNo 显示为订单编号",
+  orderModel.decorate({ returnNo: 'LEGACY123456' }, TODAY).orderNo,
+  'LEGACY123456'
+);
+check(
+  "订单编号归一化：全角转半角、去空格",
+  orderModel.normalizeOrderNo(' ３３１６ ８０ '),
+  '331680'
+);
+check(
+  "订单编号归一化：截断 64 位",
+  orderModel.normalizeOrderNo(new Array(81).join('1')).length,
+  64
+);
+check(
+  "更新 patch：订单编号归一化",
+  orderModel.buildUpdatePatch({ orderNo: ' １２３ ４５６ ' }).orderNo,
+  '123456'
+);
+check('最晚可退时间：默认 00:00:00', orderModel.normalizeDeadlineTime(''), '00:00:00');
+check('最晚可退时间：补零', orderModel.normalizeDeadlineTime('9:5:3'), '09:05:03');
+check('最晚可退时间：越界夹取', orderModel.normalizeDeadlineTime('25:70:70'), '23:59:59');
+check(
+  '归一化：最晚可退时间默认值',
+  orderModel.normalize(validInput, 'u').deadlineTime,
+  '00:00:00'
+);
+check(
+  '更新 patch：最晚可退时间补零',
+  orderModel.buildUpdatePatch({ deadlineTime: '9:5' }).deadlineTime,
+  '09:05:00'
+);
+check(
+  '归一化：想退货默认 false',
+  orderModel.normalize(validInput, 'u').considering,
+  false
+);
+check(
+  '归一化：想退货保留 true',
+  orderModel.normalize(Object.assign({}, validInput, { considering: 1 }), 'u').considering,
+  true
+);
+check(
+  '更新 patch：想退货转布尔',
+  orderModel.buildUpdatePatch({ considering: 1 }).considering,
+  true
+);
+check(
+  '归一化：最晚发货默认空',
+  orderModel.normalize(validInput, 'u').shipDeadline,
+  ''
+);
+check(
+  '更新 patch：最晚发货归一化',
+  orderModel.buildUpdatePatch({ shipDeadline: '2026-11-01' }).shipDeadline,
+  '2026-11-01'
+);
+check(
+  '退货天数 0 也计算最晚可退日',
+  orderModel.calcDeadline('2026-10-22', 0),
+  '2026-10-22'
+);
+check(
+  '最晚发货兜底：显式值优先',
+  orderModel.resolveShipDeadline({ shipDeadline: '2026-11-01', appliedAt: '2026-10-01' }),
+  '2026-11-01'
+);
+check(
+  '最晚发货兜底：appliedAt + 7',
+  orderModel.resolveShipDeadline({ appliedAt: '2026-10-01' }),
+  '2026-10-08'
+);
+check(
+  '最晚发货兜底：createdAt + 7',
+  orderModel.resolveShipDeadline({ createdAt: '2026-10-01' }),
+  '2026-10-08'
+);
+check(
+  '最晚发货兜底：无日期返回空',
+  orderModel.resolveShipDeadline({}),
+  ''
+);
+
+// ---------------------------------------------------------------- 查重命中判定
+section('订单编号查重命中（纯函数）');
+
+const dupRows = [
+  { _id: '1', orderNo: '123456' },
+  { _id: '2', returnNo: '123456' },
+  { _id: '3', orderNo: '９９９９９９' },
+  { _id: '4', orderNo: '000000' },
+];
+
+check(
+  '查重：命中 orderNo 与旧 returnNo',
+  orderModel.matchByOrderNo(dupRows, '123456').map(function (o) { return o._id; }),
+  ['1', '2']
+);
+check(
+  '查重：排除自身',
+  orderModel.matchByOrderNo(dupRows, '123456', '1').map(function (o) { return o._id; }),
+  ['2']
+);
+check(
+  '查重：全角归一化后命中',
+  orderModel.matchByOrderNo(dupRows, '999999').map(function (o) { return o._id; }),
+  ['3']
+);
+check('查重：空编号返回空数组', orderModel.matchByOrderNo(dupRows, ''), []);
+check('查重：无命中返回空数组', orderModel.matchByOrderNo(dupRows, '555555'), []);
+
+check(
+  '筛选：按订单编号',
+  orderModel.filterByKeyword(
+    [
+      { productName: 'A', orderNo: '3316356807100404082' },
+      { productName: 'B', returnNo: 'VPH20260912ABC88' },
+    ],
+    '3316356807100404082'
+  ).length,
+  1
+);
+check(
+  '筛选：兼容旧 returnNo',
+  orderModel.filterByKeyword(
+    [{ productName: 'A', orderNo: '3316' }, { productName: 'B', returnNo: 'VPH123456' }],
+    'VPH123456'
+  ).length,
+  1
+);
+check(
+  '校验：订单编号超过 64 位报错',
+  orderModel.validate(Object.assign({}, validInput, { orderNo: new Array(66).join('1') })),
+  ['订单编号不能超过 64 位']
+);
+check(
+  "未填写时订单编号/退货原因/取件码默认空串",
+  (function () {
+    const n = orderModel.normalize(validInput, 'u');
+    return [n.orderNo, n.returnReason, n.pickupCode];
+  })(),
+  ['', '', '']
+);
+check(
+  "退货原因去首尾空格",
+  orderModel.normalize(
+    Object.assign({}, validInput, { returnReason: '  七天无理由  ' }),
+    'u'
+  ).returnReason,
+  '七天无理由'
+);
+
+// ---------------------------------------------------------------- 删除时清理凭证图（M-2）
+section('凭证图 fileID 提取（删除订单时清理云存储）');
+
+check(
+  "过滤空值/非字符串并去重",
+  orderModel.voucherFileIds({ voucher: ['a', 'b', 'a', '', null, 'c'] }),
+  ['a', 'b', 'c']
+);
+check("无 voucher 字段返回空数组", orderModel.voucherFileIds({}), []);
+check("订单为 null 返回空数组", orderModel.voucherFileIds(null), []);
+check(
+  "voucher 非数组时返回空数组",
+  orderModel.voucherFileIds({ voucher: 'cloud://x' }),
+  []
+);
 
 // ---------------------------------------------------------------- 格式化
 section('金额格式化（分 -> 元）');
@@ -218,6 +469,39 @@ check("无分隔模式", format.fenToYuan(128600, false), '1286.00');
 check("非法值兜底", format.fenToYuan('abc'), '0.00');
 check("元转分", format.yuanToFen('12.30'), 1230);
 check("元转分四舍五入", format.yuanToFen('12.345'), 1235);
+
+// 运势卡可见截断：文本框固定三行，超出补「…」；完整文案留在 fortuneText 给浮层
+check("运势截断：短文案原样返回", format.truncate('平稳小吉', 36), '平稳小吉');
+check(
+  "运势截断：超长补省略号",
+  format.truncate('今日整体运势处于平稳上升的小吉区间，日常事务推进顺畅，人际互动氛围融洽，个人状态保持稳定', 36),
+  '今日整体运势处于平稳上升的小吉区间，日常事务推进顺畅，人际互动氛围融洽，' + '…'
+);
+check("运势截断：null 当作空串", format.truncate(null, 36), '');
+
+// 当日落盘缓存：决定「冷启动要不要再请求接口」，判错会要么多请求、要么整天不更新
+section('运势当日缓存（落盘）');
+check(
+  "缓存：同一天且有文案 → 命中",
+  fortuneCache.isFresh({ date: '2026-10-24', text: '平稳小吉' }, '2026-10-24'),
+  true
+);
+check(
+  "缓存：跨天 → 失效",
+  fortuneCache.isFresh({ date: '2026-10-23', text: '平稳小吉' }, '2026-10-24'),
+  false
+);
+check(
+  "缓存：空文案 → 失效（兜底文案不会被当成缓存）",
+  fortuneCache.isFresh({ date: '2026-10-24', text: '' }, '2026-10-24'),
+  false
+);
+check("缓存：没有记录 → 失效", fortuneCache.isFresh(null, '2026-10-24'), false);
+check(
+  "缓存：写入记录带日期与文案",
+  JSON.stringify(fortuneCache.make('今日运势不错', '2026-10-24')),
+  '{"date":"2026-10-24","text":"今日运势不错"}'
+);
 
 // ------------------------------------------------------- 提醒档位判定（M-3）
 // 这一组覆盖「档位漏推」问题：档位当天被跳过（免扰/未授权/异常）后，
@@ -470,6 +754,1245 @@ check(
     'source'
   ),
   false
+);
+
+// ----------------------- 部署环境自愈：空 deadline 脏数据（2026-10-18）
+// 背景：早期 C-1 bug 曾把部分订单的 deadline 清成空串，导致编辑页日期
+// picker 拿到空 value 点不开、最晚可退日空白。页面 loadOrder 用
+// 「收货日 + 天数」自动补算修复。这里锁住「空 deadline 也能算出正确
+// 补算值」这条自愈规则，避免修复逻辑将来被改坏。
+section('空 deadline 脏数据自愈（部署环境修复）');
+
+check(
+  "空 deadline 订单按收货日+天数补算",
+  orderModel.calcDeadline('2026-10-18', 7),
+  '2026-10-25'
+);
+check(
+  "补算值可被 toDateOnly 正常归一（供 picker 使用）",
+  dateUtil.toDateOnly(orderModel.calcDeadline('2026-10-18', 7)),
+  '2026-10-25'
+);
+check(
+  "空 deadline 经 buildUpdatePatch 处理不被写回空值",
+  (function () {
+    // 模拟：只改商品名，但库里 deadline 已是空串（脏数据），
+    // 页面修复时会带着补算后的 deadline 一起提交
+    const out = orderModel.buildUpdatePatch({
+      productName: '水杯',
+      receiveDate: '2026-10-18',
+      returnDays: 7,
+      deadline: '2026-10-25',
+    });
+    return out.deadline;
+  })(),
+  '2026-10-25'
+);
+
+// ----------------------------- 部署环境配置校验（环境 ID / 集合名）
+// 锁住关键部署配置，防止误改环境 ID 或集合名导致线上数据错乱。
+section('部署环境配置校验');
+
+const envConfig = require('../miniprogram/config/env');
+
+check(
+  "环境 ID 已配置且非空（勿改回空串导致连错环境）",
+  typeof envConfig.ENV_ID === 'string' && envConfig.ENV_ID.length > 0,
+  true
+);
+check(
+  "环境 ID 格式正确（含环境名前缀）",
+  /^[a-z0-9]+-[a-z0-9]+$/i.test(envConfig.ENV_ID),
+  true
+);
+check(
+  "集合名 orders 正确",
+  envConfig.COLLECTIONS.ORDERS,
+  'orders'
+);
+check(
+  "集合名 settings 正确",
+  envConfig.COLLECTIONS.SETTINGS,
+  'settings'
+);
+check(
+  "集合名 userPlatforms 正确",
+  envConfig.COLLECTIONS.USER_PLATFORMS,
+  'userPlatforms'
+);
+
+// --------------------------------------------- OCR 字段抽取（纯逻辑）
+// 覆盖 ocr.js 的字段抽取规则：商品名 / 金额 / 日期 / 平台。
+section('OCR 字段抽取（api/ocr.js）');
+
+check(
+  "抽取商品名：跳过金额/日期行取首个中文行",
+  ocr.extractProductName(['¥199.00', '2026-10-12', '白色球鞋 43码', '订单号123']),
+  '白色球鞋 43码'
+);
+check(
+  "抽取商品名：纯数字/金额行被跳过",
+  ocr.extractProductName(['128.50', '合计', '水杯']),
+  '水杯'
+);
+check(
+  "抽取金额（¥符号）",
+  ocr.extractAmount('实付 ¥199.00 元'),
+  19900
+);
+check(
+  "抽取金额（￥符号）",
+  ocr.extractAmount('￥45.5'),
+  4550
+);
+check(
+  "抽取金额（X元 格式）",
+  ocr.extractAmount('合计 128 元'),
+  12800
+);
+check(
+  "抽取金额：无金额返回 null",
+  ocr.extractAmount('没有价格信息'),
+  null
+);
+check(
+  "抽取日期（YYYY-MM-DD）",
+  ocr.extractDate('下单 2026-10-01'),
+  '2026-10-01'
+);
+check(
+  "抽取日期（YYYY年M月D日）",
+  ocr.extractDate('2026年10月1日'),
+  '2026-10-01'
+);
+check(
+  "抽取日期（YYYY/MM/DD）",
+  ocr.extractDate('2026/10/01'),
+  '2026-10-01'
+);
+check(
+  "抽取日期：无日期返回空串",
+  ocr.extractDate('没有日期'),
+  ''
+);
+// ↓ 回归：多日期页面必须优先取「收货日期」，而不是「申请时间」
+check(
+  "抽取日期：收货日期(年月日) + 申请时间(YYYY-MM-DD)，优先收货日期",
+  ocr.extractDate('收货日期\n2026年09月15日\n申请时间\n2026-09-16'),
+  '2026-09-15'
+);
+check(
+  "抽取日期：收货日期与申请时间同行时优先收货日期",
+  ocr.extractDate('收货日期 2026-09-20\n申请时间 2026-09-21'),
+  '2026-09-20'
+);
+check(
+  "抽取日期：签收时间等价于收货日期",
+  ocr.extractDate('签收时间：2026/09/12\n申请退款 2026-09-13'),
+  '2026-09-12'
+);
+check(
+  "抽取日期：有收货标签但该行无有效日期时回退全文首个日期",
+  ocr.extractDate('收货日期\n待确认\n申请时间\n2026-09-16'),
+  '2026-09-16'
+);
+check(
+  "抽取平台：命中淘宝",
+  ocr.extractPlatform('淘宝订单 详情'),
+  '淘宝'
+);
+check(
+  "抽取平台：命中京东",
+  ocr.extractPlatform('京东商城 电子发票'),
+  '京东'
+);
+check(
+  "抽取平台：无平台返回空串",
+  ocr.extractPlatform('这是普通订单'),
+  ''
+);
+check(
+  "综合抽取：完整文本",
+  ocr.extractOrder('淘宝\n白色球鞋 43码\n¥199.00\n2026-10-01'),
+  { productName: '白色球鞋 43码', amount: 19900, date: '2026-10-01', platform: '淘宝', returnNo: '', returnReason: '', pickupCode: '' }
+);
+check(
+  "综合抽取：部分字段缺失",
+  ocr.extractOrder('水杯\n实付 45 元'),
+  { productName: '水杯', amount: 4500, date: '', platform: '', returnNo: '', returnReason: '', pickupCode: '' }
+);
+// ↓ 退货原因 / 取件码（2026-10-19 新增字段）
+// ↓ 退货单号（平台业务单号）与取件码的区分
+check(
+  "抽取退货单号：退货码标签同行",
+  ocr.extractReturnNo('退货码 VPH20260912ABC88'),
+  'VPH20260912ABC88'
+);
+check(
+  "抽取退货单号：换行",
+  ocr.extractReturnNo('退货单号\nVPH001'),
+  'VPH001'
+);
+check(
+  "抽取退货单号：退款单号别名",
+  ocr.extractReturnNo('退款单号 TB123456'),
+  'TB123456'
+);
+check(
+  "抽取退货单号：无则空串",
+  ocr.extractReturnNo('退货原因\n尺码不合适'),
+  ''
+);
+check(
+  "区分：退货码不会被当成取件码",
+  ocr.extractPickupCode('退货码\nVPH20260912ABC88'),
+  ''
+);
+check(
+  "区分：取件码不会被当成退货单号",
+  ocr.extractReturnNo('取件码\n3821'),
+  ''
+);
+check(
+  "抽取退货原因：同行",
+  ocr.extractReturnReason('退货原因 尺码不合适'),
+  '尺码不合适'
+);
+check(
+  "抽取退货原因：换行",
+  ocr.extractReturnReason('退货原因\n七天无理由退货'),
+  '七天无理由退货'
+);
+check(
+  "抽取退货原因：带冒号",
+  ocr.extractReturnReason('退款原因：质量问题'),
+  '质量问题'
+);
+check(
+  "抽取退货原因：无标签返回空串",
+  ocr.extractReturnReason('退款金额\n￥259.00'),
+  ''
+);
+check(
+  "抽取取件码：同行",
+  ocr.extractPickupCode('取件码 8821'),
+  '8821'
+);
+check(
+  "抽取取件码：换行",
+  ocr.extractPickupCode('取件码\nSF1234567890'),
+  'SF1234567890'
+);
+check(
+  "抽取取件码：无则空串",
+  ocr.extractPickupCode('退货原因\n尺码不合适'),
+  ''
+);
+check(
+  "综合抽取：含退货原因（唯品会样例）",
+  ocr.extractOrder(
+    '唯品会订单\n运动跑步鞋男透气网面减震运动鞋\n退款金额\n￥259.00\n' +
+      '退货码\nVPH20260912ABC88\n收货日期\n2026年09月12日\n申请时间\n2026-09-13\n退货原因\n尺码不合适'
+  ),
+  {
+    productName: '运动跑步鞋男透气网面减震运动鞋',
+    amount: 25900,
+    date: '2026-09-12',
+    platform: '唯品会',
+    returnNo: 'VPH20260912ABC88',
+    returnReason: '尺码不合适',
+    pickupCode: '',
+  }
+);
+
+// ---------------------------------------------------------------- 平台识别
+section('OCR 平台识别（analyzeOrder）');
+
+check(
+  "平台：唯品会 退货详情 + 快递员已取回 → 高置信",
+  ocr.analyzeOrder('唯品会\n退货详情\n快递员已取回商品\n退款金额 ¥390.00').platform,
+  '唯品会'
+);
+check(
+  "平台：唯品会置信度 high",
+  ocr.analyzeOrder('唯品会\n退货详情\n快递员已取回商品').platformConfidence,
+  'high'
+);
+check(
+  "平台：京东 我的京东 + 服务单号",
+  ocr.analyzeOrder('我的京东\n退换/售后\n进度查询\n服务单号 123456789').platform,
+  '京东'
+);
+check(
+  "平台：苏宁 我的易购",
+  ocr.analyzeOrder('我的易购\n退换/售后\n进度查询\n服务单进度').platform,
+  '苏宁易购'
+);
+check(
+  "平台：天猫优先于淘宝",
+  ocr.analyzeOrder('天猫\n退款详情\n退款编号 12345678\n要求天猫客服介入').platform,
+  '天猫'
+);
+check(
+  "平台：淘宝 已买到的宝贝",
+  ocr.analyzeOrder('我的淘宝\n已买到的宝贝\n退款编号 87654321').platform,
+  '淘宝'
+);
+check(
+  "平台：拼多多 售后详情",
+  ocr.analyzeOrder('拼多多\n退款/售后\n售后详情\n商家处理中').platform,
+  '拼多多'
+);
+check(
+  "平台：抖音商城",
+  ocr.analyzeOrder('抖音商城\n我的订单\n申请售后\n订单号 7064214528778700000').platform,
+  '抖音电商'
+);
+check(
+  "平台：快手小店",
+  ocr.analyzeOrder('快手小店\n售后详情\n退款单号 KS123456').platform,
+  '快手小店'
+);
+check(
+  "平台：只有订单号不判定",
+  ocr.analyzeOrder('订单号 123456789\n申请售后').platform,
+  ''
+);
+check(
+  "平台：只有服务单号+进度查询不判定",
+  ocr.analyzeOrder('服务单号 123456\n进度查询').platform,
+  ''
+);
+
+// ---------------------------------------------------------------- 平台字段
+section('OCR 平台字段抽取');
+
+const jdSample =
+  '京东\n我的订单\n订单编号 123456789012\n服务单号 SF20260912001\n' +
+  '退换/售后\n进度查询\n退款金额 ¥89.00\n商品金额 ¥129.00';
+const jd = ocr.analyzeOrder(jdSample);
+
+check('京东：订单号', jd.orderNo, '123456789012');
+check(
+  '订单号标签：订单号（淘宝）',
+  ocr.analyzeOrder('淘宝\n订单号 3316356807100404082').orderNo,
+  '3316356807100404082'
+);
+check(
+  '订单号标签：订单号码（拼多多）',
+  ocr.analyzeOrder('拼多多\n订单号码 251001123456789').orderNo,
+  '251001123456789'
+);
+check(
+  '订单号标签：order_id（抖音）',
+  ocr.analyzeOrder('抖音商城\norder_id 7064214528778700000').orderNo,
+  '7064214528778700000'
+);
+check(
+  '订单号兜底：只有退货单号',
+  ocr.analyzeOrder('唯品会\n退货单号 VPH20260912ABC88').orderNo,
+  'VPH20260912ABC88'
+);
+check(
+  '订单号兜底：标签保留',
+  ocr.analyzeOrder('唯品会\n退货单号 VPH20260912ABC88').orderNoLabel,
+  '退货单号'
+);
+check(
+  '订单号兜底：退货编号',
+  ocr.analyzeOrder('苏宁易购\n退货编号 SH20261001XYZ').orderNo,
+  'SH20261001XYZ'
+);
+check(
+  '订单号兜底：服务单号',
+  ocr.analyzeOrder('京东\n服务单号 SF20261001001').orderNo,
+  'SF20261001001'
+);
+check(
+  '订单号优先于退货单号',
+  ocr.analyzeOrder('淘宝\n订单编号 3316356807100404082\n退货单号 VPH20260912ABC88')
+    .orderNo,
+  '3316356807100404082'
+);
+check('京东：订单号标签', jd.orderNoLabel, '订单编号');
+check('京东：售后单号', jd.returnNo, 'SF20260912001');
+check('京东：售后编号标签', jd.returnNoLabel, '服务单号');
+check('金额：退款金额优先于商品金额', jd.amount, 8900);
+check('金额：命中标签', jd.amountLabel, '退款金额');
+
+check(
+  '唯品会：取件时间',
+  ocr.analyzeOrder('唯品会\n退货详情\n取件时间\n01-22（周六）12:00-14:00').pickupTime,
+  '01-22（周六）12:00-14:00'
+);
+check(
+  '唯品会：状态映射',
+  ocr.analyzeOrder('唯品会\n退货详情\n快递员已取回商品').statusKey,
+  'return_in_transit'
+);
+check(
+  '淘宝：取件码只认标签',
+  ocr.analyzeOrder('淘宝\n退款编号 12345678\n取件码 2083').pickupCode,
+  '2083'
+);
+check(
+  '淘宝：退货码不当作取件码',
+  ocr.analyzeOrder('淘宝\n退货码 VPH123456').pickupCode,
+  ''
+);
+check(
+  '页面类型：售后详情',
+  ocr.analyzeOrder('退款详情\n退款编号 12345678').pageKind,
+  'aftersale_detail'
+);
+check(
+  '页面类型：订单详情',
+  ocr.analyzeOrder('订单编号 12345678\n下单时间 2026-10-01').pageKind,
+  'order_detail'
+);
+check(
+  '日期：无收货标签不猜',
+  ocr.analyzeOrder('唯品会\n下单时间 2026-10-01\n订单编号 12345678').date,
+  ''
+);
+check(
+  '日期：确认收货时间可用',
+  ocr.analyzeOrder('确认收货时间 2026-10-05').date,
+  '2026-10-05'
+);
+check(
+  '商品名：跳过平台与字段行',
+  ocr.analyzeOrder(
+    '我的淘宝\n已买到的宝贝\n退款详情\n白色球鞋 43码\n退款编号 12345'
+  ).productName,
+  '白色球鞋 43码'
+);
+check(
+  '商品名：支持英文商品名',
+  ocr.extractProductName(['订单编号 1234567890', 'AirPods Pro 2']),
+  'AirPods Pro 2'
+);
+check(
+  '页面类型：退款成功也属于售后页',
+  ocr.analyzeOrder('退款成功\n¥90.00').pageKind,
+  'aftersale_detail'
+);
+check(
+  '状态：普通「已签收」不算退货签收',
+  ocr.analyzeOrder('唯品会\n退货详情\n已签收').statusKey,
+  ''
+);
+check(
+  '取件码：标签后是「复制」按钮时为空',
+  ocr.extractPickupCode('取件码\n复制'),
+  ''
+);
+check(
+  '平台：同时出现淘宝与天猫时取天猫',
+  ocr.extractPlatform('天猫\n我的淘宝\n已买到的宝贝'),
+  '天猫'
+);
+check(
+  '编号：标签下面紧跟日期时不误当订单号',
+  ocr.analyzeOrder('订单编号\n2026-10-01').orderNo,
+  ''
+);
+check(
+  '金额：只有「合计优惠」时不把优惠当金额',
+  ocr.analyzeOrder('合计优惠 -¥5.00').amount,
+  null
+);
+check(
+  '金额：运费不被当订单金额',
+  ocr.analyzeOrder('运费 ¥10.00').amount,
+  null
+);
+check(
+  '金额：实付优先于合计',
+  ocr.analyzeOrder('合计 ¥120.00\n实付款 ¥99.00').amount,
+  9900
+);
+check(
+  '商品名：不把售后原因当商品',
+  ocr.analyzeOrder('天猫\n退款详情\n退款编号 12345678\n退款原因\n七天无理由').productName,
+  ''
+);
+check(
+  '商品名：不把商家状态当商品',
+  ocr.analyzeOrder('拼多多\n售后详情\n商家处理中').productName,
+  ''
+);
+check(
+  '商品名：不把取件时间段当商品',
+  ocr.analyzeOrder('唯品会\n退货详情\n取件时间\n01-22（周六）12:00-14:00').productName,
+  ''
+);
+check(
+  '商品名：跳过「商品」分区标题',
+  ocr.extractProductName(['商品', 'Apple iPhone 15 128GB']),
+  'Apple iPhone 15 128GB'
+);
+check(
+  '商品名：不把物流状态当商品',
+  ocr.analyzeOrder('京东\n订单详情\n已签收\n小米 充电宝 10000mAh').productName,
+  '小米 充电宝 10000mAh'
+);
+check(
+  '商品名：不把「查看更多」按钮当商品',
+  ocr.extractProductName(['查看更多', '抽纸 整箱']),
+  '抽纸 整箱'
+);
+check(
+  '页面类型：订单详情 + 实付可判定',
+  ocr.analyzeOrder('拼多多\n订单详情\n抽纸 整箱\n实付 ¥25.00').pageKind,
+  'order_detail'
+);
+check(
+  '平台：淘宝 + 退款编号为高置信',
+  ocr.analyzeOrder('淘宝\n退款详情\n退款编号 1234567890123').platformConfidence,
+  'high'
+);
+check(
+  '日期：「确认收货」下面是预计送达时不采纳',
+  ocr.extractReceiveDate('确认收货\n预计送达 2026-10-08'),
+  ''
+);
+check(
+  '日期：「确认收货」下面是纯日期时采纳',
+  ocr.extractReceiveDate('确认收货\n2026-10-05'),
+  '2026-10-05'
+);
+check(
+  '日期：同行「预计送达」不采纳',
+  ocr.extractReceiveDate('确认收货 预计送达 2026-10-08'),
+  ''
+);
+check(
+  '平台：旧接口把「抖音」映射为标准名',
+  ocr.extractPlatform('抖音商城 我的订单'),
+  '抖音电商'
+);
+
+// ---------------------------------------------------------------- 真实淘宝页回归
+section('OCR 真实淘宝订单页回归');
+
+const taobaoRealSample = [
+  '交易成功',
+  '已签收 城区 润泽苑小区5号楼2单元303',
+  '张兰 86-182****8754',
+  '毛茸茸派对系列+1',
+  '当前收集进度0/7，拆盒后可手动标记拥有哦～',
+  'NTP潮玩',
+  '88VIP好评率97%，平均8小时退款',
+  '进店逛逛',
+  '【现货】MINISO名创优品三丽... ¥105',
+  '美乐蒂【拆盒未拆袋】',
+  '退货宝 不支持7天无理由 极速退款',
+  '实付价 ¥95 价格明细',
+  '备注',
+  '闲鱼转卖 申请售后 加入购物车',
+  '实付款 共减¥10 优惠解析 ¥95',
+  '店铺优惠抵¥10',
+  '订单信息 共7项 3316356807100404082 复制',
+].join('\n');
+
+const tbReal = ocr.analyzeOrder(taobaoRealSample);
+
+check('真实淘宝：平台', tbReal.platform, '淘宝');
+check('真实淘宝：置信度', tbReal.platformConfidence, 'medium');
+check('真实淘宝：商品名不抓收件人', tbReal.productName, '【现货】MINISO名创优品三丽...');
+check('真实淘宝：金额取实付款而非共减', tbReal.amount, 9500);
+check('真实淘宝：订单号从「订单信息」兜底', tbReal.orderNo, '3316356807100404082');
+check('真实淘宝：不猜测收货日期', tbReal.date, '');
+check('真实淘宝：页面类型', tbReal.pageKind, 'order_detail');
+check(
+  '真实淘宝：金额拆行时仍取实付款',
+  ocr.analyzeOrder('实付款\n共减¥10\n优惠解析\n¥95').amount,
+  9500
+);
+check(
+  '商品名：收件人姓名与其手机号拆行时不误抓',
+  ocr.extractProductName(['张兰', '86-182****8754', '抽纸 整箱']),
+  '抽纸 整箱'
+);
+check(
+  '商品名：不把「去更新 >」当商品',
+  ocr.extractProductName(['毛茸茸派对系列+1 去更新 >', '【现货】MINISO名创优品三丽...']),
+  '【现货】MINISO名创优品三丽...'
+);
+check(
+  '商品名：带箭头的入口行不抓',
+  ocr.extractProductName(['去查看 >', '抽纸 整箱']),
+  '抽纸 整箱'
+);
+check(
+  '商品名：清理标题末尾的下拉箭头',
+  ocr.extractProductName(['【现货】MINISO名创优品三丽... ∨ ¥105']),
+  '【现货】MINISO名创优品三丽...'
+);
+check(
+  '商品名：短字母数字串（GG7）不当商品',
+  ocr.extractProductName(['GG7', '抽纸 整箱']),
+  '抽纸 整箱'
+);
+check(
+  '商品名：全大写代号（GG7X）不当商品',
+  ocr.extractProductName(['GG7X', '抽纸 整箱']),
+  '抽纸 整箱'
+);
+check('OCR 返回规则版本', ocr.analyzeOrder('x').ruleVersion, ocr.OCR_RULE_VERSION);
+check(
+  '商品名：标题跨行时自动拼接',
+  ocr.extractProductName([
+    'GG7',
+    '【现货】MINISO名创优品三丽鸥',
+    '家族岛屿狐系列搪胶毛绒盲盒挂件',
+    '美乐蒂【拆盒未拆袋】',
+  ]),
+  '【现货】MINISO名创优品三丽鸥家族岛屿狐系列搪胶毛绒盲盒挂件'
+);
+check(
+  '商品名：清理标题末尾的向上箭头',
+  ocr.extractProductName(['【现货】MINISO名创优品三丽鸥 ∧ ¥105']),
+  '【现货】MINISO名创优品三丽鸥'
+);
+
+// ---------------------------------------------------------------- 真实抖音页回归
+section('OCR 真实抖音订单页回归');
+
+const douyinRealSample = [
+  '交易完成',
+  '新1',
+  '来自豆包',
+  '秋歌食品店',
+  '【2斤大袋装】原味正宗大铁… ¥15.90',
+  '2斤*1袋（【柴火炒】现炒现发））酥香珍珠小花生',
+  '7天无理由退货',
+  '申请售后',
+  '实付款',
+  '¥10.90',
+  '订单编号 691776096877617385 复制',
+].join('\n');
+
+const dyReal = ocr.analyzeOrder(douyinRealSample);
+
+check('真实抖音：平台（来自豆包）', dyReal.platform, '抖音电商');
+check('真实抖音：置信度', dyReal.platformConfidence, 'high');
+check(
+  '真实抖音：状态词不当商品、标题跨行拼接',
+  dyReal.productName,
+  '【2斤大袋装】原味正宗大铁…2斤*1袋（【柴火炒】现炒现发））酥香珍珠小花生'
+);
+check('真实抖音：角标「新1」未被选中', dyReal.productName === '新1', false);
+check('真实抖音：金额取实付款', dyReal.amount, 1090);
+check('真实抖音：订单编号', dyReal.orderNo, '691776096877617385');
+check('真实抖音：不猜测收货日期', dyReal.date, '');
+
+// 第二张抖音页：无品牌词，商品卡 UI 文案与标题混排
+const douyinReal2 = [
+  '交易完成',
+  'BKT官方旗舰店 J旗舰 直播 >',
+  '【七夕礼物】BKT护腰坐姿… ¥398.00',
+  '（1个装）加大黑（100-150斤）',
+  '买后必看 操作使用指南 分享商品',
+  '申请售后',
+  '实付款',
+  '¥168.00',
+  '订单编号 6955312424043485145 复制',
+].join('\n');
+
+const dyReal2 = ocr.analyzeOrder(douyinReal2);
+
+check(
+  '真实抖音2：UI 文案不当商品、标题跨行拼接',
+  dyReal2.productName,
+  '【七夕礼物】BKT护腰坐姿…（1个装）加大黑（100-150斤）'
+);
+check('真实抖音2：金额取实付款', dyReal2.amount, 16800);
+check('真实抖音2：订单编号', dyReal2.orderNo, '6955312424043485145');
+check('真实抖音2：无品牌词时按「交易完成+买后必看」判抖音', dyReal2.platform, '抖音电商');
+check('真实抖音2：置信度 medium', dyReal2.platformConfidence, 'medium');
+
+// 拼多多页：物流提示混排 + 先用后付实付 0
+const pddRealSample = [
+  '已签收 已按承诺时间送达',
+  '您的快件已领取，收件人在[兔喜生活](北…',
+  '2026-10-13 21:21:11',
+  '王超 153****2037 号码保护中',
+  '通州区富河园23号楼4单元6层461',
+  '霖霖D杂货铺 11.11',
+  '观赏鱼杀菌盐海盐养鱼专用鱼缸消毒盐净化水质预防鱼病水族… ¥9.7',
+  '【除黄防臭杀菌】袋装1000克',
+  '退货包运费保障中>',
+  '承诺达·已准时送达>',
+  '购后小助手 查看使用说明书',
+  '售后详情 联系商家',
+  '先用后付 实付: ¥0.0',
+  '15小时后，自动确认收货并付款¥9.7',
+  '订单号: 261011-360343170593024 复制',
+].join('\n');
+
+const pddReal = ocr.analyzeOrder(pddRealSample);
+
+check('真实拼多多：平台（兔喜生活）', pddReal.platform, '拼多多');
+check('真实拼多多：置信度', pddReal.platformConfidence, 'high');
+check(
+  '真实拼多多：物流提示不当商品、标题跨行',
+  pddReal.productName,
+  '观赏鱼杀菌盐海盐养鱼专用鱼缸消毒盐净化水质预防鱼病水族…【除黄防臭杀菌】袋装1000克'
+);
+check(
+  '商品名：最长 60 字',
+  ocr.extractProductName([new Array(71).join('长')]).length,
+  60
+);
+check('真实拼多多：先用后付取应付金额', pddReal.amount, 970);
+check('真实拼多多：金额标签', pddReal.amountLabel, '先用后付-应付');
+check('真实拼多多：签收日期', pddReal.date, '2026-10-13');
+check('真实拼多多：订单号', pddReal.orderNo, '261011-360343170593024');
+
+// ---------------------------------------------------------------- 已申请筛选
+section('已申请列表按关键词筛选（商品名 / 平台）');
+
+const appliedRows = [
+  { productName: '运动跑步鞋男', platform: '唯品会' },
+  { productName: '蓝牙耳机 Air', platform: '京东' },
+  { productName: '抽纸巾整箱', platform: '拼多多' },
+];
+
+check("关键词命中商品名", orderModel.filterByKeyword(appliedRows, '跑步').length, 1);
+check(
+  "关键词命中平台",
+  orderModel.filterByKeyword(appliedRows, '京东')[0].productName,
+  '蓝牙耳机 Air'
+);
+check(
+  "英文忽略大小写",
+  orderModel.filterByKeyword(appliedRows, 'air')[0].productName,
+  '蓝牙耳机 Air'
+);
+check("关键词去首尾空格", orderModel.filterByKeyword(appliedRows, '  拼多多  ').length, 1);
+check("关键词为空返回全部", orderModel.filterByKeyword(appliedRows, '   ').length, 3);
+check("无匹配返回空数组", orderModel.filterByKeyword(appliedRows, '不存在的词'), []);
+check("空列表安全", orderModel.filterByKeyword(null, 'x'), []);
+check("未传关键词返回全部", orderModel.filterByKeyword(appliedRows).length, 3);
+
+// ---------------------------------------------------------------- 装饰与全局搜索
+section('装饰列表与全局搜索');
+
+const searchRows = [
+  {
+    _id: '1',
+    productName: '跑步鞋',
+    platform: '京东',
+    orderNo: '3316001',
+    status: 'pending',
+    deadline: TODAY,
+  },
+  {
+    _id: '2',
+    productName: '蓝牙耳机',
+    platform: '淘宝',
+    returnNo: 'VPH88',
+    status: 'applied',
+    deadline: '2026-10-10',
+    appliedAt: '2026-10-01',
+  },
+  {
+    _id: '3',
+    productName: '抽纸巾',
+    platform: '拼多多',
+    status: 'pending',
+    deadline: '2026-10-20',
+  },
+];
+
+const decoratedRows = orderModel.decorateList(searchRows, TODAY);
+check('decorateList：空列表安全', orderModel.decorateList(null, TODAY), []);
+check('decorateList：长度不变', decoratedRows.length, 3);
+check('decorateList：今天到期 remainDays=0', decoratedRows[0].remainDays, 0);
+check('decorateList：已申请显示已申请', decoratedRows[1].countdownText, '已申请');
+check('decorateList：保留原字段', decoratedRows[0].productName, '跑步鞋');
+
+const byOrderNo = orderModel.searchOrders(searchRows, '3316001', 0, 10, TODAY);
+check('searchOrders：按订单编号命中', byOrderNo.total, 1);
+check('searchOrders：命中记录正确', byOrderNo.list[0]._id, '1');
+check('searchOrders：带出倒计时', byOrderNo.list[0].remainDays, 0);
+
+const byOldNo = orderModel.searchOrders(searchRows, 'VPH88', 0, 10, TODAY);
+check('searchOrders：兼容旧 returnNo', byOldNo.total, 1);
+
+const page1 = orderModel.searchOrders(searchRows, '', 0, 2, TODAY);
+check('searchOrders：第一页 total', page1.total, 3);
+check('searchOrders：第一页条数', page1.list.length, 2);
+check('searchOrders：第一页 hasMore', page1.hasMore, true);
+const page2 = orderModel.searchOrders(searchRows, '', 2, 2, TODAY);
+check('searchOrders：第二页条数', page2.list.length, 1);
+check('searchOrders：第二页 hasMore', page2.hasMore, false);
+
+// ---------------------------------------------------------------- 分页切片
+section('已申请分页切片');
+
+const pageRows = [];
+for (let i = 1; i <= 12; i++) pageRows.push({ id: i });
+
+check("第一页返回 10 条且还有更多", orderModel.slicePage(pageRows, 0, 10), {
+  list: pageRows.slice(0, 10),
+  total: 12,
+  hasMore: true,
+});
+check("第二页返回剩余 2 条且无更多", orderModel.slicePage(pageRows, 10, 10), {
+  list: pageRows.slice(10),
+  total: 12,
+  hasMore: false,
+});
+check("越界 offset 返回空列表", orderModel.slicePage(pageRows, 20, 10), {
+  list: [],
+  total: 12,
+  hasMore: false,
+});
+check("负数 offset 按 0 处理", orderModel.slicePage(pageRows, -5, 10).list.length, 10);
+check("空列表安全", orderModel.slicePage(null, 0, 10), {
+  list: [],
+  total: 0,
+  hasMore: false,
+});
+
+// ---------------------------------------------------------------- 用户设置
+section('用户设置（归一化 / 校验）');
+
+check("默认值：空对象回退 7 天与默认档位", settingsModel.normalizeSettings({}), {
+  defaultReturnDays: 7,
+  remindAdvanceDays: [3, 1, 0],
+  quietHours: { start: '22:00', end: '08:00' },
+  subscribeFlag: false,
+});
+check(
+  "默认天数上限钳制到 30",
+  settingsModel.normalizeSettings({ defaultReturnDays: 99 }).defaultReturnDays,
+  30
+);
+check(
+  "默认天数负数钳制到 0",
+  settingsModel.normalizeSettings({ defaultReturnDays: -3 }).defaultReturnDays,
+  0
+);
+check(
+  "提醒档位去重并降序",
+  settingsModel.normalizeSettings({ remindAdvanceDays: [1, 3, 3, 0] }).remindAdvanceDays,
+  [3, 1, 0]
+);
+check(
+  "提醒档位全非法时回退默认",
+  settingsModel.normalizeSettings({ remindAdvanceDays: [99, -1] }).remindAdvanceDays,
+  [3, 1, 0]
+);
+check(
+  "免打扰非法时间回退默认",
+  settingsModel.normalizeSettings({ quietHours: { start: '25:00', end: 'x' } }).quietHours,
+  { start: '22:00', end: '08:00' }
+);
+check(
+  "免打扰合法时间保留",
+  settingsModel.normalizeSettings({ quietHours: { start: '00:30', end: '07:05' } }).quietHours,
+  { start: '00:30', end: '07:05' }
+);
+check(
+  "校验：天数越界报错",
+  settingsModel.validateSettings({
+    defaultReturnDays: 31,
+    remindAdvanceDays: [3],
+    quietHours: { start: '22:00', end: '08:00' },
+  }).length,
+  1
+);
+check(
+  "校验：档位为空报错",
+  settingsModel.validateSettings({
+    defaultReturnDays: 7,
+    remindAdvanceDays: [],
+    quietHours: { start: '22:00', end: '08:00' },
+  }).length,
+  1
+);
+check(
+  "校验：时间格式错误报错（8:00 不合格）",
+  settingsModel.validateSettings({
+    defaultReturnDays: 7,
+    remindAdvanceDays: [3],
+    quietHours: { start: '8:00', end: '22:00' },
+  }).length,
+  1
+);
+check(
+  "校验：合法设置通过",
+  settingsModel.validateSettings({
+    defaultReturnDays: 7,
+    remindAdvanceDays: [3, 1, 0],
+    quietHours: { start: '22:00', end: '08:00' },
+  }),
+  []
+);
+
+// ---------------------------------------------------------------- 已取货状态
+section('状态机：已取货（第三阶段）');
+
+check(
+  "已取货为终态，优先于逾期派生",
+  orderModel.deriveStatus({ status: 'picked', deadline: '2020-01-01' }, '2026-10-19'),
+  'picked'
+);
+check(
+  "已取货倒计时文案",
+  orderModel.getCountdown({ status: 'picked', deadline: '2026-10-20' }, '2026-10-19').countdownText,
+  '已取货'
+);
+check(
+  "已取货 remainDays 为 null",
+  orderModel.getCountdown({ status: 'picked', deadline: '2026-10-20' }, '2026-10-19').remainDays,
+  null
+);
+check(
+  "归一化保留 picked 状态",
+  orderModel.normalize(
+    { productName: 'x', platform: 'y', receiveDate: TODAY, amount: 100, status: 'picked' },
+    'u'
+  ).status,
+  'picked'
+);
+check(
+  "未知状态归一为 pending",
+  orderModel.normalize(
+    { productName: 'x', platform: 'y', receiveDate: TODAY, amount: 100, status: 'weird' },
+    'u'
+  ).status,
+  'pending'
+);
+
+// ---------------------------------------------------------------- 金额求和
+section('金额求和（列表总额）');
+
+check(
+  "求和：正常列表",
+  orderModel.sumAmount([{ amount: 1000 }, { amount: 2500 }, { amount: 99 }]),
+  3599
+);
+check("求和：空列表返回 0", orderModel.sumAmount([]), 0);
+check("求和：空值/非法值按 0 处理", orderModel.sumAmount(null), 0);
+check(
+  "求和：缺字段或非数字按 0 处理",
+  orderModel.sumAmount([{ amount: 100 }, {}, { amount: 'abc' }, { amount: null }]),
+  100
+);
+
+// ---------------------------------------------------------------- 凭证追加
+section('凭证追加（识图图片入凭证）');
+
+check('凭证：正常追加', orderModel.appendVoucher(['a'], 'b', 3), {
+  list: ['a', 'b'],
+  added: true,
+  reason: '',
+});
+const voucherInput = ['a'];
+orderModel.appendVoucher(voucherInput, 'b', 3);
+check('凭证：不修改传入数组', voucherInput, ['a']);
+check('凭证：重复不追加', orderModel.appendVoucher(['a'], 'a', 3), {
+  list: ['a'],
+  added: false,
+  reason: 'duplicate',
+});
+check('凭证：满额不追加', orderModel.appendVoucher(['a', 'b', 'c'], 'd', 3), {
+  list: ['a', 'b', 'c'],
+  added: false,
+  reason: 'full',
+});
+check('凭证：空 fileID 不追加', orderModel.appendVoucher([], '', 3), {
+  list: [],
+  added: false,
+  reason: 'empty',
+});
+
+// ---------------------------------------------------------------- 跳转错误翻译
+// 这层翻译一旦译错，用户会拿到一条误导性提示，比根本不给提示更糟，所以锁住。
+check(
+  '跳转错误：页面栈超限',
+  navUtil.describe({ errMsg: 'navigateTo:fail webview count limit exceed' }),
+  '页面栈已满（上限 10 层）'
+);
+check(
+  '跳转错误：目标是 tabBar 页',
+  navUtil.describe({ errMsg: 'navigateTo:fail can not navigateTo a tabbar page' }),
+  '目标页是 tabBar 页，跳转方式不对'
+);
+check(
+  '跳转错误：目标页面未注册',
+  navUtil.describe({
+    errMsg: 'navigateTo:fail page "pages/order-edit/order-edit" is not found',
+  }),
+  '目标页面未在 app.json 注册'
+);
+check(
+  '跳转错误：已在首页还想返回',
+  navUtil.describe({ errMsg: 'navigateBack:fail cannot navigate back at first page.' }),
+  '已经是第一个页面，无法返回'
+);
+check('跳转错误：拿不到原因', navUtil.describe(null), '跳转失败，原因未知');
+check('跳转错误：普通 Error 透出原文', navUtil.describe(new Error('boom')), 'boom');
+check(
+  '跳转错误：认不出的原文透出并截断，不吞掉真实原因',
+  navUtil.describe({ errMsg: 'navigateTo:fail ' + 'x'.repeat(50) }),
+  'navigateTo:fail ' + 'x'.repeat(14) + '…'
+);
+
+// ---------------------------------------------------------------- 云错误翻译
+// 译错会直接误导用户：曾把「未登录」说成「请稍后重试」，导致整条链路无从排查。
+// 云开发的错误形状不统一（详情有时只在 message 里，errCode 有时嵌在 errMsg 里），
+// 这几种形状都要能命中。
+check(
+  '云错误：未登录（详情在 message 里）',
+  wxcloud.normalizeError(
+    {
+      errMsg: 'collection.get:fail',
+      message:
+        'T: errCode: -501023 permission denied | errMsg: Unauthenticated access is denied',
+    },
+    'list:orders'
+  ).message,
+  '未登录，无法访问云数据'
+);
+check(
+  '云错误：未登录（errCode 嵌在 errMsg 里）',
+  wxcloud.normalizeError(
+    { errMsg: 'collection.get:fail Error: errCode: -501023 permission denied' },
+    'list:orders'
+  ).message,
+  '未登录，无法访问云数据'
+);
+check(
+  '云错误：环境不存在',
+  wxcloud.normalizeError({ errMsg: 'env not exists', errCode: -601002 }, 'x').message,
+  '云环境不可用，请检查环境 ID 与 AppID'
+);
+check(
+  '云错误：集合不存在',
+  wxcloud.normalizeError({ errMsg: 'collection not exists', errCode: -502005 }, 'x')
+    .message,
+  '云数据库集合不存在，请先在云开发控制台创建集合'
+);
+check(
+  '云错误：安全规则拒绝',
+  wxcloud.normalizeError({ errMsg: 'permission denied', errCode: -502003 }, 'x')
+    .message,
+  '没有权限，请检查数据库安全规则是否为「仅创建者可读写」'
+);
+check(
+  '云错误：认不出时兜底，不编造原因',
+  wxcloud.normalizeError({ errMsg: 'something weird' }, 'x').message,
+  '操作失败，请稍后重试'
+);
+check(
+  '云错误：保留原始错误便于排查',
+  wxcloud.normalizeError({ errMsg: 'x', errCode: -601002 }, 'list:orders').raw.errCode,
+  -601002
+);
+
+// --------------------------------------------- 星座运势代理（api/horoscope.js）
+// 锁住「Key 只在云函数侧 + 接口失败走前端兜底」链路的纯逻辑部分：
+// 请求地址组装、文案提取优先级、错误形状判定。
+section('星座运势代理（api/horoscope.js）');
+
+check(
+  '运势：buildRequestUrl 默认双鱼座/today',
+  fortune.buildRequestUrl('mykey', '', ''),
+  'https://web.juhe.cn/constellation/getAll?key=mykey&consName=' +
+    encodeURIComponent('双鱼座') +
+    '&type=today'
+);
+check(
+  '运势：buildRequestUrl 编码 key 与自定义参数',
+  fortune.buildRequestUrl('a b&c', '狮子座', 'week'),
+  'https://web.juhe.cn/constellation/getAll?key=' +
+    encodeURIComponent('a b&c') +
+    '&consName=' +
+    encodeURIComponent('狮子座') +
+    '&type=week'
+);
+check(
+  '运势：取 result.summary 一句话总评',
+  fortune.extractFortuneText({
+    error_code: 0,
+    result: { summary: '今天运气不错', all: '综合运佳' },
+  }),
+  '今天运气不错'
+);
+check(
+  '运势：无 summary 时取 all',
+  fortune.extractFortuneText({ error_code: 0, result: { all: '整体运势平稳' } }),
+  '整体运势平稳'
+);
+check(
+  '运势：接口报错时返回空（前端走兜底）',
+  fortune.extractFortuneText({ error_code: 10012, reason: 'key不正确', result: null }),
+  ''
+);
+check('运势：无 result 返回空', fortune.extractFortuneText({ error_code: 0 }), '');
+check(
+  '运势：仅有分项（无 all/summary）时拼合 love/work/money',
+  fortune.extractFortuneText({
+    error_code: 0,
+    result: { love: '有桃花', work: '效率高', money: '有进账' },
+  }),
+  '爱情有桃花，工作效率高，财运有进账'
+);
+check(
+  '运势：cleanText 去 HTML/压空白',
+  fortune.cleanText('  <p>今天  不错</p>\n很棒 '),
+  '今天 不错 很棒'
+);
+check('运势：文案超 400 字截断', fortune.cleanText(new Array(501).join('好')).length, 400);
+
+// 回归：聚合数据官方示例的 summary 约 110 字，必须完整保留
+// （曾有 MAX_TEXT_LENGTH=64 把文案硬切在「……无明显阻碍，整」处）
+const JUHE_SAMPLE_SUMMARY =
+  '有些思考的小漩涡，可能让你忽然的放空。生活中的许多细节让你感触良多，五味杂陈，常常有时候就慢动作定格，想法在果实冻结停留，陷入一阵自我对话的沉思之中，这个时候你不喜欢被打扰或间问，也不想让某些想法曝光，个性变得有些隐晦。';
+check(
+  '运势：官方示例长度（约 110 字）的 summary 不被截断',
+  fortune.cleanText(JUHE_SAMPLE_SUMMARY),
+  JUHE_SAMPLE_SUMMARY
+);
+check(
+  '运势：示例 summary 提取后仍是完整句（结尾不是半个字）',
+  fortune
+    .extractFortuneText({ error_code: 0, result: { summary: JUHE_SAMPLE_SUMMARY } })
+    .slice(-3),
+  '隐晦。'
+);
+
+// ---- 自检与错误码归一化（2026-10-24 修「配了 Key 不生效」时补的防护）----
+// 这几条锁的是真实接口的两个坑：error_code 可能是字符串 '0'；
+// all/love/work/money 是运势指数数字，不是文案。
+check('运势：error_code 字符串 "0" 归一化为 0', fortune.normalizeErrorCode({ error_code: '0' }), 0);
+check('运势：error_code 数字 10001 原样返回', fortune.normalizeErrorCode({ error_code: 10001 }), 10001);
+check('运势：error_code 缺失时返回 null', fortune.normalizeErrorCode({ result: { summary: 'x' } }), null);
+check(
+  '运势：error_code 在 result 里时也能读到',
+  fortune.normalizeErrorCode({ result: { error_code: '10002' } }),
+  10002
+);
+check(
+  '运势：error_code 为字符串 "0" 时仍取 summary（旧实现在这里静默失败）',
+  fortune.extractFortuneText({ error_code: '0', result: { summary: '今天运气不错' } }),
+  '今天运气不错'
+);
+check(
+  '运势：只有纯数字指数时拼成分值文案',
+  fortune.extractFortuneText({ error_code: 0, result: { all: '78' } }),
+  '综合78分'
+);
+check(
+  '运势：多个指数拼成分值文案',
+  fortune.extractFortuneText({ error_code: 0, result: { all: 78, love: 70, work: 60, money: 90 } }),
+  '综合78分 · 爱情70分 · 工作60分 · 财运90分'
+);
+check(
+  '运势：result 被包成数组时取第一条',
+  fortune.extractFortuneText({ error_code: 0, result: [{ summary: '今天适合整理订单' }] }),
+  '今天适合整理订单'
+);
+check(
+  '运势：result 为字符串时当成一句话',
+  fortune.extractFortuneText({ error_code: 0, result: '今天运气不错' }),
+  '今天运气不错'
+);
+check(
+  '运势：describeShape 报出数组与字段',
+  fortune.describeShape({ error_code: 0, result: [{ summary: 'x', all: '78' }] }).resultKeys.join(','),
+  'summary,all'
+);
+check(
+  '运势自检：error_code=0 但没文案时不再报「接口返回异常」',
+  fortune.buildProbeConclusion({ hasKey: true, errorCode: 0, ok: false, stage: 'requested', httpStatus: 200 }).title,
+  '接口通了，但没解析到文案'
+);
+check(
+  '运势自检：该分支的 detail 带出 result 类型与字段',
+  fortune.buildProbeConclusion({
+    hasKey: true,
+    errorCode: 0,
+    ok: false,
+    stage: 'requested',
+    httpStatus: 200,
+    resultType: 'object',
+    resultKeys: ['date', 'all'],
+  }).detail,
+  'HTTP 200 · result 类型 object · result 字段 date/all'
+);
+check(
+  '运势：没有 result 容器时用顶层字段解析',
+  fortune.extractFortuneText({ error_code: 0, summary: '今天适合整理订单', all: '78' }),
+  '今天适合整理订单'
+);
+check(
+  '运势：容器叫 data 时也能取到',
+  fortune.extractFortuneText({ error_code: 0, data: { summary: '今天运气不错' } }),
+  '今天运气不错'
+);
+check(
+  '运势自检：detail 带出顶层字段与原文，便于定位真实结构',
+  fortune.buildProbeConclusion({
+    hasKey: true,
+    errorCode: 0,
+    ok: false,
+    stage: 'requested',
+    httpStatus: 200,
+    payloadKeys: ['error_code', 'reason'],
+    resultType: 'missing',
+    preview: '{"error_code":0,"reason":"ok"}',
+  }).detail,
+  'HTTP 200 · 顶层字段 error_code/reason · result 类型 missing · 原文 {"error_code":0,"reason":"ok"}'
+);
+check(
+  '运势自检：result 缺失时给出「顶层字段兜底」说法',
+  fortune.buildProbeConclusion({ hasKey: true, errorCode: 0, ok: false, stage: 'requested', resultType: 'missing' }).advice
+    .indexOf('顶层字段兜底') > -1,
+  true
+);
+check(
+  '运势：result 为数组（错误返回）时取不到文案',
+  fortune.extractFortuneText({ error_code: 0, result: [] }),
+  ''
+);
+check('运势：isDisplayableText 拒绝纯数字', fortune.isDisplayableText('78'), false);
+check('运势：isDisplayableText 接受中文', fortune.isDisplayableText('运势一般'), true);
+check(
+  '运势：describeError 带出 error_code 与 reason',
+  fortune.describeError({ error_code: '10001', reason: 'KEY ERROR!' }),
+  'error_code=10001（KEY ERROR!）'
+);
+check(
+  '运势自检：无 key 时结论指向环境变量',
+  fortune.buildProbeConclusion({ hasKey: false }).title,
+  '云函数没读到 JUHE_KEY'
+);
+check(
+  '运势自检：key 首尾带空格时单独点名',
+  fortune.buildProbeConclusion({ hasKey: true, keyHasSpace: true, keyLength: 33 }).title,
+  'JUHE_KEY 首尾带空格或换行'
+);
+check(
+  '运势自检：成功时结论为 ok',
+  fortune.buildProbeConclusion({ hasKey: true, ok: true, errorCode: 0, stage: 'requested' }).level,
+  'ok'
+);
+check(
+  '运势自检：10002 指向接口未开通',
+  fortune.buildProbeConclusion({ hasKey: true, ok: false, errorCode: 10002, stage: 'requested' }).title,
+  '接口未开通或无权限（error_code=10002）'
+);
+check(
+  '运势自检：请求失败时结论指向出网请求',
+  fortune.buildProbeConclusion({ hasKey: true, stage: 'request-failed', error: '运势接口请求超时' }).level,
+  'error'
 );
 
 // ---------------------------------------------------------------- 汇总

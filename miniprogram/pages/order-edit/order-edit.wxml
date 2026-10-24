@@ -10,10 +10,21 @@
       <text class="alert-text">{{errorMsg}}</text>
     </view>
 
-    <!-- 已申请状态条 -->
-    <view wx:if="{{mode === 'edit' && status === 'applied'}}" class="done-strip">
-      <text class="done-title">已申请退货</text>
-      <text wx:if="{{appliedAtText}}" class="done-date">申请于 {{appliedAtText}}</text>
+    <!-- 状态条：已申请 / 已取货 -->
+    <view wx:if="{{mode === 'edit' && (status === 'applied' || status === 'picked')}}" class="done-strip">
+      <text class="done-title">{{status === 'picked' ? '已取货' : '上门取件'}}</text>
+      <text wx:if="{{status === 'picked' && pickedAtText}}" class="done-date">取货于 {{pickedAtText}}</text>
+      <text wx:if="{{status === 'applied' && appliedAtText}}" class="done-date">申请于 {{appliedAtText}}</text>
+    </view>
+
+    <!-- 截图 OCR 识别入口：仅新建时显示，识别结果回填表单由用户核对 -->
+    <view wx:if="{{mode === 'create'}}" class="ocr-entry tap" bindtap="onOcrPick">
+      <view class="ocr-icon">📷</view>
+      <view class="ocr-body">
+        <text class="ocr-title">拍订单截图，自动填</text>
+        <text class="ocr-sub">{{ocrBusy ? '识别中，请稍候…' : '识别商品、金额、日期，你再核对补全'}}</text>
+      </view>
+      <text class="ocr-arrow">›</text>
     </view>
 
     <!-- ------------------------------------------------ 商品与平台 -->
@@ -24,7 +35,7 @@
         value="{{productName}}"
         placeholder="例如：白色球鞋"
         placeholder-class="ph"
-        maxlength="40"
+        maxlength="60"
         data-field="productName"
         bindinput="onFieldInput"
       />
@@ -68,8 +79,8 @@
     <!-- ------------------------------------------------ 时效 -->
     <view class="field-row">
       <view class="field field-half field-half-first">
-        <text class="field-label">收货日期</text>
-        <picker mode="date" value="{{receiveDate}}" end="{{today}}" bindchange="onReceiveDateChange">
+        <text class="field-label">申请退货日期</text>
+        <picker mode="date" value="{{receiveDate}}" start="2010-01-01" end="{{today}}" bindchange="onReceiveDateChange">
           <view class="field-picker">
             <text class="picker-value num">{{receiveDate}}</text>
           </view>
@@ -93,7 +104,7 @@
     <!-- 最晚可退日：自动算，也能手动改 -->
     <view class="deadline-box">
       <view class="deadline-head">
-        <text class="section-label">最晚可退日</text>
+        <text class="section-label">⏰ 最晚可退日</text>
         <text class="deadline-tag {{deadlineOverridden ? 'is-manual' : ''}}">
           {{deadlineOverridden ? '已手动指定' : '自动计算'}}
         </text>
@@ -110,6 +121,10 @@
         </picker>
         <text wx:else class="deadline-value num">{{deadline}}</text>
 
+        <picker class="deadline-time-picker" mode="multiSelector" range="{{deadlineTimeRange}}" value="{{deadlineTimeIndex}}" bindchange="onDeadlineTimeChange">
+          <text class="deadline-time num">{{deadlineTime}}</text>
+        </picker>
+
         <view class="deadline-actions">
           <picker
             wx:if="{{!deadlineOverridden}}"
@@ -123,21 +138,56 @@
         </view>
       </view>
 
-      <text class="deadline-hint">收货日 + {{returnDays}} 天。个别平台规则不同时可手动改。</text>
+      <text class="deadline-hint">申请退货日 + {{returnDays}} 天，可手动改。</text>
+    </view>
+
+    <view wx:if="{{mode === 'create'}}" class="considering-field">
+      <view class="considering-copy">
+        <text class="considering-title">想退货</text>
+        <text class="considering-sub">还在犹豫，先放进「想退货名单」</text>
+      </view>
+      <switch checked="{{considering}}" color="#e0a23c" bindchange="onConsideringChange" />
     </view>
 
     <view class="rule"></view>
 
-    <!-- ------------------------------------------------ 备注与凭证 -->
+    <!-- ------------------------------------------------ 取件码 / 订单编号 / 退货原因 -->
     <view class="field">
-      <text class="field-label">备注</text>
-      <textarea
-        class="field-textarea"
-        value="{{remark}}"
-        placeholder="退货原因、取件码等"
+      <text class="field-label">取件码</text>
+      <input
+        class="field-input num"
+        value="{{pickupCode}}"
+        placeholder="上门取件的取件码，没有可不填"
         placeholder-class="ph"
-        maxlength="200"
-        data-field="remark"
+        maxlength="30"
+        data-field="pickupCode"
+        bindinput="onFieldInput"
+      />
+    </view>
+
+    <view class="field">
+      <text class="field-label">订单编号</text>
+      <input
+        class="field-input num"
+        value="{{orderNo}}"
+        placeholder="订单编号/订单号，如 3316356807100404082"
+        placeholder-class="ph"
+        maxlength="64"
+        data-field="orderNo"
+        bindinput="onFieldInput"
+      />
+      <text wx:if="{{orderNoDupText}}" class="field-error">{{orderNoDupText}}</text>
+    </view>
+
+    <view class="field">
+      <text class="field-label">退货原因</text>
+      <input
+        class="field-input"
+        value="{{returnReason}}"
+        placeholder="例如：尺码不合适"
+        placeholder-class="ph"
+        maxlength="40"
+        data-field="returnReason"
         bindinput="onFieldInput"
       />
     </view>
@@ -166,11 +216,19 @@
       </view>
 
       <view
-        wx:if="{{mode === 'edit' && status !== 'applied'}}"
+        wx:if="{{mode === 'edit' && status === 'pending'}}"
         class="btn-secondary tap"
         bindtap="onMarkApplied"
       >
-        <text>标记为已申请</text>
+        <text>标记为上门取件</text>
+      </view>
+
+      <view
+        wx:if="{{mode === 'edit' && status === 'applied'}}"
+        class="btn-secondary tap"
+        bindtap="onMarkPicked"
+      >
+        <text>标记已取货</text>
       </view>
 
       <view wx:if="{{mode === 'edit'}}" class="btn-danger tap" bindtap="onDelete">
@@ -181,4 +239,12 @@
     <view class="bottom-space"></view>
 
   </block>
+
+  <!-- 背景水印：不拦截点击 -->
+  <pickup-time
+    visible="{{pickupPickerVisible}}"
+    value="{{pickupTimeDraft}}"
+    bind:confirm="onPickupTimeConfirm"
+    bind:cancel="onPickupTimeCancel"
+  />
 </view>

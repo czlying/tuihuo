@@ -21,3 +21,11 @@ Thumbs.db
 
 # ===== 日志 =====
 *.log
+
+# ===== 多端应用误升级备份 / 配置（不提交） =====
+backup-multiapp-20261024/
+project.miniapp.json
+miniprogram/app.miniapp.json
+
+# ===== 个人证件照（不提交） =====
+design/idcard/

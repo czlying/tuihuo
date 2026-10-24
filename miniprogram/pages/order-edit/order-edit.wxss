@@ -149,17 +149,19 @@
 
 /* ------------------------------------------------------------ 最晚可退日 */
 .deadline-box {
-  margin-top: 46rpx;
-  padding: 32rpx 32rpx 30rpx;
+  margin-top: 34rpx;
+  padding: 22rpx 28rpx 22rpx;
   background-color: var(--paper-raise);
   border-left: 6rpx solid var(--ink);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
 }
 
 .deadline-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 18rpx;
+  margin-bottom: 10rpx;
 }
 
 .deadline-tag {
@@ -167,7 +169,7 @@
   color: var(--ink-3);
   border: 1rpx solid var(--line);
   padding: 4rpx 14rpx;
-  border-radius: 4rpx;
+  border-radius: var(--radius-pill);
 }
 .deadline-tag.is-manual {
   color: var(--amber);
@@ -181,10 +183,25 @@
 }
 
 .deadline-value {
-  font-size: 44rpx;
+  font-size: 40rpx;
   font-weight: 500;
   color: var(--ink);
   letter-spacing: -0.01em;
+}
+
+/* 最晚可退日的时分秒：默认 00:00:00，可点选 */
+.deadline-time-picker {
+  align-self: center;
+  margin-left: 12rpx;
+  margin-right: auto;
+}
+
+.deadline-time {
+  padding: 4rpx 12rpx;
+  border-radius: var(--radius-pill);
+  background-color: var(--candy-1);
+  color: var(--ink-1);
+  font-size: 26rpx;
 }
 
 .deadline-actions {
@@ -201,10 +218,40 @@
 
 .deadline-hint {
   display: block;
-  margin-top: 18rpx;
-  font-size: 22rpx;
+  margin-top: 10rpx;
+  font-size: 21rpx;
   color: var(--ink-3);
-  line-height: 1.6;
+  line-height: 1.4;
+}
+
+/* 想退货：犹豫中的订单开关 */
+.considering-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20rpx;
+  padding: 18rpx 24rpx;
+  background-color: rgba(224, 162, 60, 0.08);
+  border-radius: var(--radius-card);
+}
+
+.considering-copy {
+  flex: 1;
+  min-width: 0;
+  margin-right: 20rpx;
+}
+
+.considering-title {
+  display: block;
+  font-size: 26rpx;
+  color: var(--ink-1);
+}
+
+.considering-sub {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 21rpx;
+  color: var(--ink-3);
 }
 
 /* ------------------------------------------------------------ 凭证 */
@@ -225,7 +272,7 @@
 .voucher-img {
   width: 158rpx;
   height: 158rpx;
-  border-radius: 6rpx;
+  border-radius: 20rpx;
   background-color: var(--line);
 }
 
@@ -249,7 +296,7 @@
   width: 158rpx;
   height: 158rpx;
   border: 1rpx dashed var(--line-strong);
-  border-radius: 6rpx;
+  border-radius: 20rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -275,31 +322,37 @@
 }
 
 .btn-primary {
-  background-color: var(--ink);
-  color: var(--paper);
+  background-color: var(--candy-1);
+  background-image: linear-gradient(135deg, var(--candy-1) 0%, var(--candy-2) 100%);
+  color: #ffffff;
   text-align: center;
   padding: 30rpx 0;
-  border-radius: 6rpx;
+  border-radius: var(--radius-pill);
   font-size: 30rpx;
   letter-spacing: 0.08em;
+  box-shadow: var(--shadow-btn);
 }
 
 .btn-secondary {
   margin-top: 24rpx;
+  background-color: var(--paper-raise);
   border: 1rpx solid var(--line-strong);
   color: var(--ink);
   text-align: center;
   padding: 28rpx 0;
-  border-radius: 6rpx;
+  border-radius: var(--radius-pill);
   font-size: 28rpx;
+  box-shadow: var(--shadow-soft);
 }
 
 .btn-danger {
   margin-top: 24rpx;
+  background-color: #fff0f3;
   color: var(--brick);
   text-align: center;
   padding: 24rpx 0;
   font-size: 27rpx;
+  border-radius: var(--radius-pill);
 }
 
 .bottom-space {
@@ -312,6 +365,8 @@
   border-left: 6rpx solid var(--brick);
   padding: 22rpx 26rpx;
   margin-top: 32rpx;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
 }
 .alert-text {
   font-size: 25rpx;
@@ -324,6 +379,8 @@
   border-left: 6rpx solid var(--moss);
   padding: 22rpx 26rpx;
   margin-top: 32rpx;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
 }
 .done-title {
   display: block;
@@ -336,4 +393,50 @@
   color: var(--moss);
   opacity: 0.8;
   margin-top: 8rpx;
+}
+
+/* ------------------------------------------------------------ OCR 识别入口 */
+.ocr-entry {
+  display: flex;
+  align-items: center;
+  margin-top: 32rpx;
+  padding: 26rpx 28rpx;
+  background-color: var(--paper-raise);
+  border: 1rpx dashed var(--line-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+.ocr-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 18rpx;
+  background-color: var(--candy-1);
+  background-image: linear-gradient(135deg, var(--candy-1) 0%, var(--candy-2) 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  margin-right: 22rpx;
+  flex-shrink: 0;
+}
+.ocr-body {
+  flex: 1;
+  min-width: 0;
+}
+.ocr-title {
+  display: block;
+  font-size: 29rpx;
+  color: var(--ink);
+}
+.ocr-sub {
+  display: block;
+  font-size: 22rpx;
+  color: var(--ink-3);
+  margin-top: 6rpx;
+}
+.ocr-arrow {
+  font-size: 34rpx;
+  color: var(--ink-3);
+  margin-left: 12rpx;
 }

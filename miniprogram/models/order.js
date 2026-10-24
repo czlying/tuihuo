@@ -16,6 +16,7 @@ const {
   DERIVED_STATUS,
   URGENCY,
   DEFAULT_RETURN_DAYS,
+  MAX_RETURN_DAYS,
   MAX_AMOUNT_FEN,
   MAX_VOUCHER_COUNT,
 } = require('../constants/index');
@@ -57,8 +58,9 @@ function calcDeadline(receiveDate, returnDays) {
 function deriveStatus(order, todayStr) {
   if (!order) return DERIVED_STATUS.PENDING;
 
-  // 已申请是终态，永远优先
+  // 已申请 / 已取货都是终态，永远优先
   if (order.status === ORDER_STATUS.APPLIED) return DERIVED_STATUS.APPLIED;
+  if (order.status === ORDER_STATUS.PICKED) return DERIVED_STATUS.PICKED;
 
   const today = todayStr || dateUtil.today();
   const deadline = dateUtil.toDateOnly(order.deadline);
@@ -86,6 +88,15 @@ function getCountdown(order, todayStr) {
       remainDays: null,
       urgency: URGENCY.NORMAL,
       countdownText: '已申请',
+      deadlineText: deadline ? dateUtil.formatCN(deadline) : '',
+    };
+  }
+
+  if (status === DERIVED_STATUS.PICKED) {
+    return {
+      remainDays: null,
+      urgency: URGENCY.NORMAL,
+      countdownText: '已取货',
       deadlineText: deadline ? dateUtil.formatCN(deadline) : '',
     };
   }
@@ -120,7 +131,7 @@ function getCountdown(order, todayStr) {
 function decorate(order, todayStr) {
   if (!order) return null;
   const countdown = getCountdown(order, todayStr);
-  return Object.assign({}, order, {
+  const out = Object.assign({}, order, {
     derivedStatus: deriveStatus(order, todayStr),
     remainDays: countdown.remainDays,
     urgency: countdown.urgency,
@@ -128,6 +139,63 @@ function decorate(order, todayStr) {
     deadlineText: countdown.deadlineText,
     isOverdue: countdown.urgency === URGENCY.OVERDUE,
   });
+  // 旧记录：订单编号曾存在 returnNo 字段
+  if (out.orderNo === undefined) out.orderNo = order.returnNo || '';
+  return out;
+}
+
+/**
+ * 全局搜索纯函数：装饰 → 关键词筛选 → 分页。
+ * 服务层只负责取数，命中与分页逻辑集中在这里，便于 Node 直接测试。
+ *
+ * @param {Array} list 原始订单数组
+ * @param {string} keyword 关键词
+ * @param {number} offset 跳过条数
+ * @param {number} limit 每页条数
+ * @param {string} [todayStr] 今天（YYYY-MM-DD），缺省时 decorate 内部取今天
+ * @returns {{list:Array,total:number,hasMore:boolean,keyword:string,offset:number}}
+ */
+function searchOrders(list, keyword, offset, limit, todayStr) {
+  const kw = String(keyword || '').trim();
+  const start = Math.max(0, Number(offset) || 0);
+  const decorated = decorateList(list, todayStr);
+  const matched = filterByKeyword(decorated, kw);
+  const page = slicePage(matched, start, limit);
+
+  return {
+    list: page.list,
+    total: page.total,
+    hasMore: page.hasMore,
+    keyword: kw,
+    offset: start,
+  };
+}
+
+/**
+ * 对已排序的列表做分页切片。
+ * 返回 { list, total, hasMore }，翻页数学集中在这里，便于单测。
+ *
+ * @param {Array} list   已按目标顺序排好的完整数组
+ * @param {number} offset 跳过条数（负数按 0 处理）
+ * @param {number} limit  每页条数（非法值回退 10）
+ */
+function slicePage(list, offset, limit) {
+  const arr = list || [];
+  const off = Math.max(0, Number(offset) || 0);
+  const lim = Math.max(1, Number(limit) || 10);
+
+  return {
+    list: arr.slice(off, off + lim),
+    total: arr.length,
+    hasMore: off + lim < arr.length,
+  };
+}
+
+/** 求和金额（单位：分）。空值/非法值按 0 处理 */
+function sumAmount(list) {
+  return (list || []).reduce(function (sum, item) {
+    return sum + (Number(item && item.amount) || 0);
+  }, 0);
 }
 
 /** 批量装饰 */
@@ -138,12 +206,42 @@ function decorateList(list, todayStr) {
 }
 
 /**
+ * 按关键词筛选订单：命中「商品名」「平台」或「订单编号」任一即保留。
+ * 订单编号优先读 orderNo，旧记录回落 returnNo。
+ * - 关键词去首尾空格、忽略大小写（中文不受影响）
+ * - 关键词为空时返回全部（浅拷贝，避免调用方误改原数组）
+ *
+ * 抽成纯函数是为了能被 Node 直接测试；服务层与测试共用同一实现，
+ * 不在测试里复刻筛选逻辑（复刻的测试改真实代码不会变红）。
+ */
+function filterByKeyword(list, keyword) {
+  const kw = String(keyword || '').trim().toLowerCase();
+  if (!kw) return (list || []).slice();
+
+  return (list || []).filter(function (item) {
+    if (!item) return false;
+    const name = String(item.productName || '').toLowerCase();
+    const platform = String(item.platform || '').toLowerCase();
+    const no = String(
+      item.orderNo !== undefined ? item.orderNo : item.returnNo || ''
+    ).toLowerCase();
+    return name.indexOf(kw) > -1 || platform.indexOf(kw) > -1 || no.indexOf(kw) > -1;
+  });
+}
+
+/**
  * 校验一笔待保存的订单，返回错误信息数组（空数组表示通过）。
  * 放在纯函数层，保证录入页与未来的批量导入走同一套校验。
  */
 function validate(input) {
   const errors = [];
   const data = input || {};
+
+  // 订单编号长度上限：normalize 会截断，这里提前拦截，避免静默丢字符
+  const rawOrderNo = String(data.orderNo !== undefined ? data.orderNo : data.returnNo || '');
+  if (rawOrderNo.replace(/\s+/g, '').length > 64) {
+    errors.push('订单编号不能超过 64 位');
+  }
 
   if (!data.productName || !String(data.productName).trim()) {
     errors.push('请填写商品名');
@@ -165,8 +263,10 @@ function validate(input) {
   }
 
   const days = Number(data.returnDays);
-  if (!isFinite(days) || days < 0) {
-    errors.push('退货天数需为不小于 0 的数字');
+  if (!isFinite(days) || days < 0 || days > MAX_RETURN_DAYS) {
+    errors.push('退货天数需在 0–' + MAX_RETURN_DAYS + ' 天之间');
+  } else if (Math.round(days) !== days) {
+    errors.push('退货天数需为整数');
   }
 
   // 凭证数量上限。前端的 picker 限制只是顺手拦截，
@@ -185,16 +285,103 @@ function validate(input) {
 }
 
 /**
+ * 订单编号归一化：全角转半角、去掉所有空白、截断 64 位。
+ * 手动输入和 OCR 都可能出现全角数字/空格，不统一会查不到重复。
+ */
+function normalizeOrderNo(value) {
+  const raw = String(value === undefined || value === null ? '' : value);
+  return raw
+    .replace(/[\uFF01-\uFF5E]/g, function (ch) {
+      return String.fromCharCode(ch.charCodeAt(0) - 0xfee0);
+    })
+    .replace(/\s+/g, '')
+    .slice(0, 64);
+}
+
+/**
+ * 从候选订单中筛出订单编号相同的记录（兼容旧 returnNo）。
+ * 纯函数：service 查库后调用这里做命中判定，便于单测。
+ *
+ * @param {Array} rows 候选订单
+ * @param {string} orderNo 待查编号
+ * @param {string} [excludeId] 排除自身
+ * @returns {Array} 命中的订单
+ */
+function matchByOrderNo(rows, orderNo, excludeId) {
+  const no = normalizeOrderNo(orderNo);
+  if (!no) return [];
+
+  const seen = {};
+  const out = [];
+
+  (rows || []).forEach(function (o) {
+    if (!o) return;
+
+    const id = o._id || '';
+    if (excludeId && id === excludeId) return;
+    if (id && seen[id]) return;
+
+    const candidate = normalizeOrderNo(
+      o.orderNo !== undefined && o.orderNo !== '' ? o.orderNo : o.returnNo || ''
+    );
+    if (candidate !== no) return;
+
+    if (id) seen[id] = true;
+    out.push(o);
+  });
+
+  return out;
+}
+
+/**
+ * 最晚发货日兜底：优先显式 shipDeadline，否则按基准日 + 7 天。
+ * 基准日依次取 appliedAt / createdAt / receiveDate，避免老订单显示空。
+ */
+function resolveShipDeadline(order) {
+  const o = order || {};
+  const explicit = dateUtil.toDateOnly(o.shipDeadline);
+  if (explicit) return explicit;
+
+  const base =
+    dateUtil.toDateOnly(o.appliedAt) ||
+    dateUtil.toDateOnly(o.createdAt) ||
+    dateUtil.toDateOnly(o.receiveDate);
+
+  return base ? calcDeadline(base, 7) : '';
+}
+
+/**
+ * 最晚可退日的时分秒归一化：默认 00:00:00，非法值回默认，各段夹在合法范围。
+ */
+function normalizeDeadlineTime(value) {
+  const s = String(value === undefined || value === null ? '' : value).trim();
+  const m = s.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/);
+  if (!m) return '00:00:00';
+
+  const pad = function (n) {
+    return n < 10 ? '0' + n : '' + n;
+  };
+  const h = Math.max(0, Math.min(23, Number(m[1]) || 0));
+  const mi = Math.max(0, Math.min(59, Number(m[2]) || 0));
+  const se = Math.max(0, Math.min(59, Number(m[3] || 0) || 0));
+  return pad(h) + ':' + pad(mi) + ':' + pad(se);
+}
+
+/**
  * 把录入表单归一化成可直接入库的订单对象。
  * 确保 amount 是「分」的整数、日期是 'YYYY-MM-DD' 字符串。
  */
 function normalize(input, uid) {
   const data = input || {};
   const receiveDate = dateUtil.toDateOnly(data.receiveDate);
-  const returnDays =
+  let returnDays =
     data.returnDays === null || data.returnDays === undefined || data.returnDays === ''
       ? DEFAULT_RETURN_DAYS
       : Number(data.returnDays);
+
+  // 归一化最后一道防线：非法值回落默认，取整并封顶，避免 deadline 被推到极远
+  if (!isFinite(returnDays) || returnDays < 0) returnDays = DEFAULT_RETURN_DAYS;
+  returnDays = Math.min(Math.round(returnDays), MAX_RETURN_DAYS);
 
   // 允许用户直接改 deadline（F-5：支持手动修改天数或日期）
   const deadline = data.deadline
@@ -218,15 +405,73 @@ function normalize(input, uid) {
     receiveDate: receiveDate,
     returnDays: returnDays,
     deadline: deadline,
-    status: data.status === ORDER_STATUS.APPLIED ? ORDER_STATUS.APPLIED : ORDER_STATUS.PENDING,
+    deadlineTime: normalizeDeadlineTime(data.deadlineTime),
+    // 最晚发货日：已申请退货后使用，旧记录为空时由页面按 appliedAt+7 兜底
+    shipDeadline: dateUtil.toDateOnly(data.shipDeadline) || '',
+    considering: !!data.considering,
+    status:
+      data.status === ORDER_STATUS.APPLIED
+        ? ORDER_STATUS.APPLIED
+        : data.status === ORDER_STATUS.PICKED
+        ? ORDER_STATUS.PICKED
+        : ORDER_STATUS.PENDING,
     source: data.source || 'manual',
     ocrRaw: data.ocrRaw || '',
     lastRemindStage: data.lastRemindStage === undefined ? null : data.lastRemindStage,
     appliedAt: data.appliedAt || null,
+    pickedAt: data.pickedAt || null,
+    // 运单号：预留给后续「已寄出」阶段，v1 无 UI、不参与查重
     logisticsNo: data.logisticsNo || '',
+    // 订单编号：兼容旧字段 returnNo（早期版本把订单/退款号都放在这里）
+    orderNo: normalizeOrderNo(
+      data.orderNo !== undefined ? data.orderNo : data.returnNo || ''
+    ),
+    returnReason: String(data.returnReason || '').trim(),
+    pickupCode: String(data.pickupCode || '').trim(),
     voucher: voucher,
     remark: String(data.remark || '').trim(),
   };
+}
+
+/**
+ * 取订单的凭证 fileID 列表（去空、去重）。
+ * 删除订单时用它清理云存储里的凭证图（M-2）；抽成纯函数便于测试。
+ */
+function voucherFileIds(order) {
+  const list = order && Array.isArray(order.voucher) ? order.voucher : [];
+  const out = [];
+  list.forEach(function (f) {
+    if (typeof f === 'string' && f && out.indexOf(f) === -1) out.push(f);
+  });
+  return out;
+}
+
+/**
+ * 把 fileID 追加到凭证列表（纯函数）。
+ * 识图时把截图存入凭证也走这里，保证「重复不追加、满额不覆盖」。
+ *
+ * @param {string[]} list 当前凭证
+ * @param {string} fileId 新文件 fileID
+ * @param {number} max 上限
+ * @returns {{list:string[], added:boolean, reason:string}}
+ *   reason: '' | 'empty' | 'duplicate' | 'full'
+ */
+function appendVoucher(list, fileId, max) {
+  const current = Array.isArray(list) ? list.slice() : [];
+  const limit = Math.max(1, Number(max) || 1);
+
+  if (typeof fileId !== 'string' || !fileId) {
+    return { list: current, added: false, reason: 'empty' };
+  }
+  if (current.indexOf(fileId) > -1) {
+    return { list: current, added: false, reason: 'duplicate' };
+  }
+  if (current.length >= limit) {
+    return { list: current, added: false, reason: 'full' };
+  }
+
+  current.push(fileId);
+  return { list: current, added: true, reason: '' };
 }
 
 /**
@@ -274,8 +519,20 @@ function buildUpdatePatch(patch) {
   if (data.deadline !== undefined) {
     data.deadline = dateUtil.toDateOnly(data.deadline);
   }
+  if (data.deadlineTime !== undefined) {
+    data.deadlineTime = normalizeDeadlineTime(data.deadlineTime);
+  }
+  if (data.considering !== undefined) {
+    data.considering = !!data.considering;
+  }
+  if (data.shipDeadline !== undefined) {
+    data.shipDeadline = dateUtil.toDateOnly(data.shipDeadline);
+  }
   if (data.receiveDate !== undefined) {
     data.receiveDate = dateUtil.toDateOnly(data.receiveDate);
+  }
+  if (data.orderNo !== undefined) {
+    data.orderNo = normalizeOrderNo(data.orderNo);
   }
 
   return data;
@@ -283,11 +540,21 @@ function buildUpdatePatch(patch) {
 
 module.exports = {
   calcDeadline,
+  resolveShipDeadline,
   deriveStatus,
   getCountdown,
   decorate,
   decorateList,
+  filterByKeyword,
+  searchOrders,
+  slicePage,
+  sumAmount,
   validate,
   normalize,
+  normalizeOrderNo,
+  normalizeDeadlineTime,
+  matchByOrderNo,
+  voucherFileIds,
+  appendVoucher,
   buildUpdatePatch,
 };

@@ -16,13 +16,15 @@
  */
 const ORDER_STATUS = {
   PENDING: 'pending', // 待退货
-  APPLIED: 'applied', // 已申请
+  APPLIED: 'applied', // 已申请（拿到取件码/寄件码）
+  PICKED: 'picked',   // 已取货（快递员已取走）
 };
 
 /** 派生态（不落库，仅用于展示与筛选） */
 const DERIVED_STATUS = {
   PENDING: 'pending',
   APPLIED: 'applied',
+  PICKED: 'picked',
   OVERDUE: 'overdue',
 };
 
@@ -36,6 +38,12 @@ const URGENCY = {
 
 /** 默认退货天数：收货日 + 7 天 */
 const DEFAULT_RETURN_DAYS = 7;
+
+/** 退货天数上限（防止误输入把 deadline 推到极远） */
+const MAX_RETURN_DAYS = 365;
+
+/** 前端构建版本：设置页可见，用于确认是否编译到最新代码 */
+const BUILD_VERSION = '2026-10-24.23';
 
 /** 默认提醒档位：提前 3 天 / 1 天 / 当天。用户可在设置中覆盖 */
 const DEFAULT_REMIND_ADVANCE_DAYS = [3, 1, 0];
@@ -70,7 +78,9 @@ const PRESET_PLATFORMS = [
   { name: '京东', defaultReturnDays: 7, color: '#b4442f' },
   { name: '拼多多', defaultReturnDays: 7, color: '#c8963e' },
   { name: '抖音电商', defaultReturnDays: 7, color: '#2f2b28' },
+  { name: '快手小店', defaultReturnDays: 7, color: '#ff5a3c' },
   { name: '唯品会', defaultReturnDays: 7, color: '#b0457a' },
+  { name: '苏宁易购', defaultReturnDays: 7, color: '#f0a01a' },
   { name: '美团', defaultReturnDays: 7, color: '#c8a13e' },
   { name: '饿了么', defaultReturnDays: 7, color: '#3a7bbf' },
   { name: '小红书', defaultReturnDays: 7, color: '#a8352f' },
@@ -82,6 +92,8 @@ module.exports = {
   DERIVED_STATUS,
   URGENCY,
   DEFAULT_RETURN_DAYS,
+  MAX_RETURN_DAYS,
+  BUILD_VERSION,
   DEFAULT_REMIND_ADVANCE_DAYS,
   ORDER_SOURCE,
   DASHBOARD_PREVIEW_LIMIT,
