@@ -44,6 +44,12 @@ Page({
     fortunePeek: '',
     fortuneOpen: false,
 
+    // 四个名单的收起状态（默认全部展开）
+    consideringExpanded: true,
+    pendingExpanded: true,
+    appliedExpanded: true,
+    pickedExpanded: true,
+
     todayLabel: '',
 
     pendingCount: 0,
@@ -65,7 +71,6 @@ Page({
     // 已申请退货：内联展开列表（不跳新页面）
     appliedList: [],
     appliedTotalText: '0.00',
-    appliedExpanded: false,
     // 已申请搜索：按商品名/平台筛选，列表最多展示 10 条
     appliedKeyword: '',
     appliedHasMore: false,
@@ -75,7 +80,6 @@ Page({
     // 已取货列表（同样只取第一页）
     pickedList: [],
     pickedTotalText: '0.00',
-    pickedExpanded: false,
     pickedKeyword: '',
     pickedHasMore: false,
     pickedMatchedCount: 0,
@@ -85,16 +89,18 @@ Page({
     hasMore: false,
     moreCount: 0,
 
-    // 名单收起状态
-    consideringExpanded: true,
-    pendingExpanded: true,
-
     // 想退货名单（犹豫中）
     consideringPreview: [],
     consideringCount: 0,
     consideringAmountText: '0.00',
     consideringHasMore: false,
     consideringMoreCount: 0,
+    // 想退货名单搜索（与退货名单同一套：服务端搜索 + 300ms 防抖）
+    consideringKeyword: '',
+    consideringDisplay: [],
+    consideringSearching: false,
+    consideringSearchHasMore: false,
+    consideringSearchTotal: 0,
 
     // 上门取件时间选择
     pickupPickerVisible: false,
@@ -208,6 +214,20 @@ Page({
   /** 浮层内部点击/滑动不关闭（阻止事件冒泡到遮罩） */
   onFortunePopTap() {},
 
+  /**
+   * 点击名单标题行：展开 / 收起对应列表。
+   * 四个名单共用一套结构，靠 data-key 定位各自的状态字段。
+   */
+  onToggleSection(e) {
+    const dataset = (e && e.currentTarget && e.currentTarget.dataset) || {};
+    const field = String(dataset.key || '') + 'Expanded';
+    if (!(field in this.data)) return;
+
+    const patch = {};
+    patch[field] = !this.data[field];
+    this.setData(patch);
+  },
+
   onPullDownRefresh() {
     this.refresh(true);
   },
@@ -272,6 +292,10 @@ Page({
             consideringPreview: considering,
             consideringCount: data.consideringCount || 0,
             consideringAmountText: fenToYuan(data.consideringAmount || 0),
+            // 搜索中保留当前结果，避免刷新瞬间闪回全量预览
+            consideringDisplay: this.data.consideringKeyword
+              ? this.data.consideringDisplay
+              : considering,
             consideringHasMore: (data.consideringCount || 0) > considering.length,
             consideringMoreCount: Math.max(
               0,
@@ -300,6 +324,9 @@ Page({
           // 有搜索词时，刷新后同步刷新搜索结果
           if (this.data.pendingKeyword) {
             this.reloadPendingSearch();
+          }
+          if (this.data.consideringKeyword) {
+            this.reloadConsideringSearch();
           }
         });
       })
@@ -408,20 +435,14 @@ Page({
     });
   },
 
-  onToggleConsidering() {
-    this.setData({ consideringExpanded: !this.data.consideringExpanded });
-  },
-
-  onTogglePending() {
-    this.setData({ pendingExpanded: !this.data.pendingExpanded });
-  },
-
   /** 想退货名单「决定退」：输入取件码后移入退货名单 */
   onDecideReturn(e) {
     const id = e.currentTarget.dataset.id;
     if (!id || this._deciding) return;
 
-    const target = this.data.consideringPreview.find((item) => item._id === id);
+    const target =
+      this.data.consideringDisplay.find((item) => item._id === id) ||
+      this.data.consideringPreview.find((item) => item._id === id);
     if (!target) return;
 
     wx.showModal({
@@ -559,11 +580,6 @@ Page({
     });
   },
 
-  /** 展开 / 收起「已申请退货」列表（原地展开，不跳新页面） */
-  onOpenApplied() {
-    this.setData({ appliedExpanded: !this.data.appliedExpanded });
-  },
-
   /** 点已申请列表里的某笔，进详情编辑 */
   onOpenAppliedOrder(e) {
     if (this._isSwipeConsumed()) return;
@@ -677,12 +693,9 @@ Page({
       });
   },
 
-  /** 页面触底：优先加载「已取货」，其次「已申请」 */
+  /** 页面触底：两个列表都常驻，各自判断还有没有下一页 */
   onReachBottom() {
-    if (this.data.pickedExpanded) {
-      this.loadMorePicked();
-      return;
-    }
+    this.loadMorePicked();
     this.loadMoreApplied();
   },
 
@@ -723,11 +736,6 @@ Page({
     const id = e.currentTarget.dataset.id;
     if (!id) return;
     nav.go('/pages/order-edit/order-edit?id=' + id);
-  },
-
-  /** 展开 / 收起「已取货」列表 */
-  onOpenPicked() {
-    this.setData({ pickedExpanded: !this.data.pickedExpanded });
   },
 
   /** 把一行已取货订单转成展示结构 */
@@ -898,6 +906,75 @@ Page({
     this.setData({ pendingKeyword: '' }, () => this.reloadPendingSearch());
   },
 
+  // ---------------------------------------------------------------- 想退货名单搜索
+  /** 执行想退货名单搜索；关键词为空则恢复默认预览 */
+  reloadConsideringSearch() {
+    const keyword = this.data.consideringKeyword;
+    const seq = (this._consideringSeq = (this._consideringSeq || 0) + 1);
+
+    if (!keyword) {
+      this.setData({
+        consideringDisplay: this.data.consideringPreview,
+        consideringSearchHasMore: false,
+        consideringSearchTotal: 0,
+        consideringSearching: false,
+      });
+      return Promise.resolve();
+    }
+
+    this.setData({ consideringSearching: true });
+
+    return services.orders
+      .searchConsidering({ keyword: keyword })
+      .then((result) => {
+        if (seq !== this._consideringSeq) return; // 期间关键词已变，丢弃过期结果
+        const list = ((result && result.list) || []).map((item) =>
+          Object.assign({}, item, { amountText: fenToYuan(item.amount) })
+        );
+
+        this.setData({
+          consideringDisplay: list,
+          consideringSearchHasMore: !!(result && result.hasMore),
+          consideringSearchTotal: (result && result.total) || 0,
+          consideringSearching: false,
+        });
+      })
+      .catch((err) => {
+        console.warn('[index] 想退货名单搜索失败', err && err.message);
+        this.setData({ consideringSearching: false });
+      });
+  },
+
+  /** 想退货名单关键词输入（300ms 防抖） */
+  onConsideringKeywordInput(e) {
+    const keyword = (e.detail && e.detail.value) || '';
+    this.setData({ consideringKeyword: keyword });
+
+    if (this._consideringTimer) clearTimeout(this._consideringTimer);
+    this._consideringTimer = setTimeout(() => {
+      this._consideringTimer = null;
+      this.reloadConsideringSearch();
+    }, 300);
+  },
+
+  /** 键盘点「搜索」立即查 */
+  onConsideringKeywordConfirm() {
+    if (this._consideringTimer) {
+      clearTimeout(this._consideringTimer);
+      this._consideringTimer = null;
+    }
+    this.reloadConsideringSearch();
+  },
+
+  /** 清空想退货名单关键词 */
+  onConsideringKeywordClear() {
+    if (this._consideringTimer) {
+      clearTimeout(this._consideringTimer);
+      this._consideringTimer = null;
+    }
+    this.setData({ consideringKeyword: '' }, () => this.reloadConsideringSearch());
+  },
+
   onUnload() {
     this._unloaded = true;
     if (this._appliedTimer) {
@@ -911,6 +988,10 @@ Page({
     if (this._pendingTimer) {
       clearTimeout(this._pendingTimer);
       this._pendingTimer = null;
+    }
+    if (this._consideringTimer) {
+      clearTimeout(this._consideringTimer);
+      this._consideringTimer = null;
     }
   },
 

@@ -239,18 +239,25 @@
   margin-right: 12rpx;
 }
 
+/* 名单收起指示：四个名单同一位置、同一字号 */
+.section-caret {
+  margin-left: 10rpx;
+  font-size: 20rpx;
+  color: var(--ink-3);
+  line-height: 1;
+}
+
 /* 列表标题 + 数量徽标 */
 .section-title {
   display: flex;
   align-items: center;
 }
-.month-title-row {
-  display: flex;
-  align-items: center;
+
+/* 独立区块头（上门取件 / 已取货）：与 .section 顶部间距保持一致 */
+.section-head-solo {
+  padding-top: 40rpx;
 }
-.month-title-row .month-title {
-  margin-top: 0;
-}
+
 .count-badge {
   margin-left: 12rpx;
   min-width: 36rpx;
@@ -529,28 +536,6 @@
   box-shadow: var(--shadow-btn);
 }
 
-/* ------------------------------------------------------------ 本月已申请 */
-.month {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  padding: 40rpx 0 20rpx;
-}
-.month-left {
-  display: flex;
-  flex-direction: column;
-}
-.month-title {
-  font-size: 29rpx;
-  color: var(--ink);
-  margin-top: 12rpx;
-}
-.month-hint {
-  font-size: 22rpx;
-  color: var(--ink-3);
-  margin-top: 8rpx;
-}
-
 /* ------------------------------------------------------------ 已申请展开面板 */
 .applied-panel {
   background-color: var(--paper-raise);
@@ -650,21 +635,6 @@
   color: var(--ink-3);
 }
 
-.month-right {
-  text-align: right;
-}
-.month-amount {
-  display: block;
-  font-size: 40rpx;
-  font-weight: 500;
-  color: var(--moss);
-  line-height: 1.2;
-}
-.month-count {
-  font-size: 22rpx;
-  color: var(--ink-3);
-}
-
 .bottom-space {
   height: 220rpx;
 }
@@ -734,12 +704,6 @@
 
 .considering-empty {
   padding: 28rpx 0;
-}
-
-.collapse-arrow {
-  margin-left: 8rpx;
-  font-size: 20rpx;
-  color: var(--ink-3);
 }
 
 /* 想退货名单下方的今/明到期提醒 */

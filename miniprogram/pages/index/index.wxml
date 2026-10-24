@@ -79,30 +79,53 @@
 
   <!-- 想退货名单：犹豫中，尚未决定退 -->
   <view class="section">
-    <view class="section-head tap" bindtap="onToggleConsidering">
+    <view class="section-head tap" bindtap="onToggleSection" data-key="considering">
       <view class="section-title">
         <text class="section-label">想退货名单</text>
         <text class="count-badge">{{consideringCount}}</text>
-        <text class="collapse-arrow">{{consideringExpanded ? '▾' : '▸'}}</text>
       </view>
       <view class="section-side">
         <text class="section-amount num">¥{{consideringAmountText}}</text>
         <text class="section-hint">{{consideringCount}} 笔</text>
+        <text class="section-caret">{{consideringExpanded ? '▾' : '▸'}}</text>
       </view>
     </view>
 
     <block wx:if="{{consideringExpanded}}">
     <text class="considering-hint">还在犹豫的订单；决定退后再到退货名单标记上门取件。</text>
 
-    <view wx:if="{{!consideringPreview.length}}" class="empty considering-empty">
-      <text class="empty-title">还没有想退货的订单</text>
-      <text class="empty-body">新建订单时勾选「想退货」，就会出现在这里。</text>
+    <!-- 搜索：按商品名或平台筛选 -->
+    <view class="list-search">
+      <input
+        class="list-search-input"
+        value="{{consideringKeyword}}"
+        placeholder="搜商品、平台或订单编号"
+        placeholder-class="list-search-ph"
+        confirm-type="search"
+        maxlength="30"
+        bindinput="onConsideringKeywordInput"
+        bindconfirm="onConsideringKeywordConfirm"
+      />
+      <view wx:if="{{consideringKeyword}}" class="list-search-clear tap" bindtap="onConsideringKeywordClear">
+        <text>×</text>
+      </view>
+    </view>
+
+    <view wx:if="{{!consideringDisplay.length}}" class="empty considering-empty">
+      <block wx:if="{{consideringKeyword}}">
+        <text class="empty-title">🔍 没有匹配的想退货订单</text>
+        <text class="empty-body">换个商品名或平台关键词试试。</text>
+      </block>
+      <block wx:else>
+        <text class="empty-title">还没有想退货的订单</text>
+        <text class="empty-body">新建订单时勾选「想退货」，就会出现在这里。</text>
+      </block>
     </view>
 
     <block wx:else>
-      <view wx:for="{{consideringPreview}}" wx:key="_id" class="swipe-row">
+      <view wx:for="{{consideringDisplay}}" wx:key="_id" class="swipe-row">
         <view
-          class="row tap swipe-content {{index === consideringPreview.length - 1 ? 'row-last' : ''}}"
+          class="row tap swipe-content {{index === consideringDisplay.length - 1 ? 'row-last' : ''}}"
           style="transform: translateX({{swipeId === item._id ? '-140rpx' : '0'}});"
           bindtap="onOpenOrder"
           bindtouchstart="onRowTouchStart"
@@ -139,8 +162,11 @@
         </view>
         <view wx:if="{{swipeId === item._id}}" class="swipe-delete tap" catchtap="onDeleteOrder" data-id="{{item._id}}">删除</view>
       </view>
-      <view wx:if="{{consideringHasMore}}" class="more-note">
+      <view wx:if="{{!consideringKeyword && consideringHasMore}}" class="more-note">
         <text>另有 {{consideringMoreCount}} 笔未显示</text>
+      </view>
+      <view wx:if="{{consideringKeyword && consideringSearchHasMore}}" class="more-note">
+        <text>共 {{consideringSearchTotal}} 笔，仅显示前 {{consideringDisplay.length}} 笔，请输入更精确的关键词</text>
       </view>
     </block>
     </block>
@@ -150,16 +176,16 @@
 
   <!-- 退货名单：已决定退，尚未标记上门取件 -->
   <view class="section">
-    <view class="section-head tap" bindtap="onTogglePending">
+    <view class="section-head tap" bindtap="onToggleSection" data-key="pending">
       <view class="section-title">
         <text class="section-label">退货名单</text>
         <text class="count-badge">{{pendingCount}}</text>
-        <text class="collapse-arrow">{{pendingExpanded ? '▾' : '▸'}}</text>
       </view>
       <view class="section-side">
         <text class="section-amount num">¥{{pendingAmountText}}</text>
         <text wx:if="{{pendingSearching}}" class="section-hint">搜索中…</text>
         <text wx:else class="section-hint">{{pendingCount}} 笔</text>
+        <text class="section-caret">{{pendingExpanded ? '▾' : '▸'}}</text>
       </view>
     </view>
 
@@ -273,23 +299,20 @@
 
   <view class="rule"></view>
 
-  <!-- 上门取件（已申请退货）：点开原地向下展开完整列表 -->
-  <view class="month tap" bindtap="onOpenApplied">
-    <view class="month-left">
-        <text class="section-label">取件</text>
-        <view class="month-title-row">
-          <text class="month-title">上门取件</text>
-          <text class="count-badge">{{appliedCountAll}}</text>
-        </view>
-        <text class="month-hint">{{appliedExpanded ? '点击收起 ▲' : '点击展开查看全部 ▼'}}</text>
-      </view>
-      <view class="month-right">
-        <text class="month-amount num">¥{{appliedAllText}}</text>
-        <text class="month-count">{{appliedCountAll}} 笔</text>
-      </view>
+  <!-- 上门取件（已申请退货） -->
+  <view class="section-head section-head-solo tap" bindtap="onToggleSection" data-key="applied">
+    <view class="section-title">
+      <text class="section-label">上门取件</text>
+      <text class="count-badge">{{appliedCountAll}}</text>
+    </view>
+    <view class="section-side">
+      <text class="section-amount num">¥{{appliedAllText}}</text>
+      <text class="section-hint">{{appliedCountAll}} 笔</text>
+      <text class="section-caret">{{appliedExpanded ? '▾' : '▸'}}</text>
+    </view>
   </view>
 
-  <!-- 展开的上门取件列表（原地展开，不跳页） -->
+  <!-- 上门取件列表 -->
   <view wx:if="{{appliedExpanded}}" class="applied-panel">
     <!-- 搜索：按商品名或平台筛选，列表默认最多显示 10 条 -->
     <view class="list-search">
@@ -380,19 +403,16 @@
 
   <view class="rule"></view>
 
-  <!-- 已取货：快递员已取走包裹 -->
-  <view class="month tap" bindtap="onOpenPicked">
-    <view class="month-left">
-      <text class="section-label">快递已取走</text>
-      <view class="month-title-row">
-        <text class="month-title">已取货</text>
-        <text class="count-badge">{{pickedCountAll}}</text>
-      </view>
-      <text class="month-hint">{{pickedExpanded ? '点击收起 ▲' : '点击展开查看全部 ▼'}}</text>
+  <!-- 已取货 -->
+  <view class="section-head section-head-solo tap" bindtap="onToggleSection" data-key="picked">
+    <view class="section-title">
+      <text class="section-label">已取货</text>
+      <text class="count-badge">{{pickedCountAll}}</text>
     </view>
-    <view class="month-right">
-      <text class="month-amount num">¥{{pickedAllText}}</text>
-      <text class="month-count">{{pickedCountAll}} 笔</text>
+    <view class="section-side">
+      <text class="section-amount num">¥{{pickedAllText}}</text>
+      <text class="section-hint">{{pickedCountAll}} 笔</text>
+      <text class="section-caret">{{pickedExpanded ? '▾' : '▸'}}</text>
     </view>
   </view>
 

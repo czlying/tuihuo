@@ -256,6 +256,36 @@ function listPending() {
 const PENDING_SEARCH_LIMIT = 20;
 
 /**
+ * 待退订单搜索的共用实现：退货名单（considering=false）与想退货名单
+ * （considering=true）只有这一个过滤条件不同，其余筛选与分页数学完全一致。
+ *
+ * @param {string} keyword
+ * @param {number} limit
+ * @param {boolean} onlyConsidering true=只要犹豫中的，false=只要已决定的
+ */
+function searchPendingMode(keyword, limit, onlyConsidering) {
+  return getAdapter()
+    .listAll(COLLECTIONS.ORDERS, {
+      where: { status: ORDER_STATUS.PENDING },
+      orderBy: ['deadline', 'asc'],
+    })
+    .then(function (rows) {
+      const decorated = orderModel.decorateList(rows).filter(function (o) {
+        return onlyConsidering ? !!o.considering : !o.considering;
+      });
+      const matched = keyword ? orderModel.filterByKeyword(decorated, keyword) : decorated;
+      const page = orderModel.slicePage(matched, 0, limit);
+
+      return {
+        list: page.list,
+        total: page.total,
+        hasMore: page.hasMore,
+        keyword: keyword,
+      };
+    });
+}
+
+/**
  * 搜索待退货单：按「商品名 / 平台」关键词筛选，按 deadline 升序（越急越前）。
  *
  * 与已申请搜索共用同一套纯函数（filterByKeyword + slicePage），
@@ -268,26 +298,18 @@ function searchPending(options) {
   const opts = options || {};
   const keyword = String(opts.keyword || '').trim();
   const limit = Math.max(1, Number(opts.limit) || PENDING_SEARCH_LIMIT);
+  return searchPendingMode(keyword, limit, false);
+}
 
-  return getAdapter()
-    .listAll(COLLECTIONS.ORDERS, {
-      where: { status: ORDER_STATUS.PENDING },
-      orderBy: ['deadline', 'asc'],
-    })
-    .then(function (rows) {
-      const decorated = orderModel.decorateList(rows).filter(function (o) {
-        return !o.considering;
-      });
-      const matched = keyword ? orderModel.filterByKeyword(decorated, keyword) : decorated;
-      const page = orderModel.slicePage(matched, 0, limit);
-
-      return {
-        list: page.list,
-        total: page.total,
-        hasMore: page.hasMore,
-        keyword: keyword,
-      };
-    });
+/**
+ * 搜索想退货名单（犹豫中）：与退货名单同一套搜索能力，只多一个 considering 过滤。
+ * @param {{keyword?:string, limit?:number}} [options]
+ */
+function searchConsidering(options) {
+  const opts = options || {};
+  const keyword = String(opts.keyword || '').trim();
+  const limit = Math.max(1, Number(opts.limit) || PENDING_SEARCH_LIMIT);
+  return searchPendingMode(keyword, limit, true);
 }
 
 /** 全局搜索：跨所有状态搜索商品名/平台/订单编号 */
@@ -602,6 +624,7 @@ module.exports = {
   revertToPending,
   listPending,
   searchPending,
+  searchConsidering,
   searchAll,
   listApplied,
   listPicked,
