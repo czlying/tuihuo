@@ -64,18 +64,7 @@ function getToday() {
   return withTimeout(request, REQUEST_TIMEOUT, '运势请求超时');
 }
 
-/**
- * 运势接口自检：把云端诊断结果原样交回页面展示。
- * 不做兜底、不吞错——自检的价值就在于把失败原因露出来。
- * @returns {Promise<object>} 云函数返回的 { ok, data?, code?, message? }
- */
-function probe() {
-  const request = getAdapter().callFunction('api', { action: 'horoscopeProbe' });
-  return withTimeout(request, REQUEST_TIMEOUT, '自检请求超时');
-}
-
 module.exports = {
   REQUEST_TIMEOUT,
   getToday,
-  probe,
 };

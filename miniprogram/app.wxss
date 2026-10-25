@@ -80,3 +80,24 @@ page {
   background-repeat: repeat;
   background-size: 300rpx 300rpx;
 }
+
+/**
+ * 自定义背景图（设置页可更换）
+ * 铺满视口，靠负 z-index 落在页面背景与内容之间：
+ * .page 建立层叠上下文后，负 z-index 子元素会盖住 .page 自身的水印，
+ * 同时仍在全部内容之下，因此不会遮挡任何显示、也不拦截点击。
+ */
+.page {
+  position: relative;
+  z-index: 1;
+}
+
+.page-bg {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+}

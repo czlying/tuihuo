@@ -1,5 +1,7 @@
 <view class="page">
 
+  <image wx:if="{{pageBg}}" class="page-bg" src="{{pageBg}}" mode="aspectFill" />
+
   <view wx:if="{{loading}}" class="loading">
     <text class="loading-text">正在读取…</text>
   </view>

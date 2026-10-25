@@ -1,5 +1,7 @@
 <view class="page">
 
+  <image wx:if="{{pageBg}}" class="page-bg" src="{{pageBg}}" mode="aspectFill" />
+
   <!-- 云开发异常：给出可执行的下一步，而不是一句"加载失败" -->
   <view wx:if="{{cloudError}}" class="alert">
     <text class="alert-title">云开发未就绪</text>

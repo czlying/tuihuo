@@ -1,4 +1,6 @@
 <view class="page">
+  <image wx:if="{{pageBg}}" class="page-bg" src="{{pageBg}}" mode="aspectFill" />
+
   <view class="search-bar">
     <text class="search-icon">🔍</text>
     <input

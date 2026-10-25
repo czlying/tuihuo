@@ -2,6 +2,7 @@ const services = require('../../services/index');
 const dateUtil = require('../../utils/date');
 const { fenToYuan } = require('../../utils/format');
 const nav = require('../../utils/nav');
+const pageBg = require('../../utils/page-bg');
 
 Page({
   data: {
@@ -12,10 +13,15 @@ Page({
     loading: false,
     loadingMore: false,
     hasMore: false,
+    pageBg: '',
   },
 
   onLoad() {
     this.search();
+  },
+
+  onShow() {
+    pageBg.sync(this);
   },
 
   onUnload() {

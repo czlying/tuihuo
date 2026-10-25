@@ -3,6 +3,7 @@ const { fenToYuan, truncate } = require('../../utils/format');
 const fortuneCache = require('../../utils/fortune-cache');
 const dateUtil = require('../../utils/date');
 const nav = require('../../utils/nav');
+const pageBg = require('../../utils/page-bg');
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -40,6 +41,7 @@ Page({
     loading: true,
     errorMsg: '',
     cloudError: '',
+    pageBg: '',
     fortuneText: '',
     fortunePeek: '',
     fortuneOpen: false,
@@ -137,6 +139,7 @@ Page({
   // 从录入页返回时要立刻看到最新数据；但预览图片关闭、切后台回来
   // 并没有数据变化，不能每次都全量重拉（3 个查询 + 图片重载）。
   onShow() {
+    pageBg.sync(this);
     this.loadFortune();
 
     if (this._firstShow) {

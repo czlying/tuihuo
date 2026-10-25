@@ -1064,6 +1064,121 @@ check(
   ''
 );
 
+// ---------------------------------------------------------------- 取件码（按平台分发）
+section('OCR 取件码识别（getPickupCodeByPlatform）');
+
+// 拼多多上门取件页：标签独占一行、值在下一行
+const pddPickupLabel =
+  '拼多多\n退款/售后\n售后详情\n上门取件\n取件码\n382915\n快递员将在预约时间上门\n订单号码 251001123456789';
+
+check(
+  '取件码：拼多多 + 标签换行 → high/label',
+  ocr.getPickupCodeByPlatform(pddPickupLabel, '拼多多'),
+  { code: '382915', confidence: 'high', source: 'label' }
+);
+check(
+  '取件码：拼多多 + 标签同行 → high/label',
+  ocr.getPickupCodeByPlatform('拼多多\n上门取件\n取件码 382915', '拼多多'),
+  { code: '382915', confidence: 'high', source: 'label' }
+);
+check(
+  '取件码：无标签只有 6 位数字 → low/regex（需用户核对）',
+  ocr.getPickupCodeByPlatform('拼多多\n上门取件\n尊敬的客户\n382915', '拼多多'),
+  { code: '382915', confidence: 'low', source: 'regex' }
+);
+check(
+  '取件码：既无标签也无 6 位数字 → 空',
+  ocr.getPickupCodeByPlatform('拼多多\n上门取件\n快递员已取走', '拼多多'),
+  { code: '', confidence: '', source: '' }
+);
+check(
+  '取件码：非拼多多平台不猜规则（预留）',
+  ocr.getPickupCodeByPlatform('淘宝\n取件码\n382915', '淘宝'),
+  { code: '', confidence: '', source: '' }
+);
+check(
+  '取件码：平台为空也返回空（本期只做拼多多）',
+  ocr.getPickupCodeByPlatform('取件码\n382915', ''),
+  { code: '', confidence: '', source: '' }
+);
+check(
+  '兜底：取离「取件码」标签最近的 6 位数字',
+  ocr.findPickupCodeFallback(['取件码', '短信验证码 111111', '222222']),
+  '111111'
+);
+check(
+  '兜底：距离相同取靠前（结果稳定可测）',
+  ocr.findPickupCodeFallback(['123456', '取件码', '654321']),
+  '123456'
+);
+check(
+  '兜底：8 位以上订单号不会被当成取件码',
+  ocr.findPickupCodeFallback(['订单号码 251001123456789']),
+  ''
+);
+check(
+  '标签下面是说明文字时不算取件码（避免假 high）',
+  ocr.resolvePickupCode('取件码\n请向快递员出示\n382915'),
+  { code: '382915', confidence: 'low', source: 'regex' }
+);
+check('looksLikePickupCode：无数字拒绝', ocr.looksLikePickupCode('请向快递员出示'), false);
+check('looksLikePickupCode：6 位数字接受', ocr.looksLikePickupCode('382915'), true);
+
+const pddHit = ocr.analyzeOrder(pddPickupLabel);
+check('取件码：analyzeOrder 高置信', pddHit.pickupConfidence, 'high');
+check('取件码：analyzeOrder 高置信不需要核对', pddHit.needConfirm, false);
+check('取件码：analyzeOrder 输出 rawLines', pddHit.rawLines.indexOf('382915') > -1, true);
+
+const pddLow = ocr.analyzeOrder('拼多多\n退款/售后\n上门取件\n382915');
+check('取件码：analyzeOrder 低置信', pddLow.pickupConfidence, 'low');
+check('取件码：analyzeOrder 低置信必须用户核对', pddLow.needConfirm, true);
+
+// ---------------------------------------------------------------- 寄回详情页真实回归
+section('OCR 寄回详情页真实回归（拼多多·预约成功页）');
+
+// 2026-10-24 真实截图原文（用户提供）：退货退款详情 / 预约成功页。
+// 这类页面商品名在缩略图里，OCR 文本中不存在；进度条文案「寄回商品」最像商品名。
+const pddReturnSample = [
+  '退货退款详情',
+  '商家处理',
+  '寄回商品',
+  '商家收货',
+  '退款成功',
+  '预约成功',
+  '本次寄件服务享受官方补贴',
+  '寄件详情',
+  '明天09:00-11:00快递员将上门取件',
+  '取件码 2281',
+  '请在快递员上门后出示',
+  '取件地址：北京市北京市通州区通州区富河园23号楼4单元6层461',
+  '预估费用：¥0',
+  '费用详情',
+  '退货商品：',
+  '请仔细核对商品，避免因退错商品导致退款失败',
+  '快递员：郭龙川',
+  '取消预约',
+  '修改预约',
+].join('\n');
+const pddReturn = ocr.analyzeOrder(pddReturnSample);
+
+check(
+  '寄回页：进度节点「寄回商品」不会被当成商品名',
+  ocr.extractProductName(['寄回商品']),
+  ''
+);
+check('寄回页：无商品名文本时返回空（不瞎填）', pddReturn.productName, '');
+check('寄回页：取件码 2281 高置信', pddReturn.pickupCode, '2281');
+check('寄回页：取件码置信度 high', pddReturn.pickupConfidence, 'high');
+check('寄回页：取件码不需要核对', pddReturn.needConfirm, false);
+check('寄回页：预估费用 0 不当金额', pddReturn.amount, 0);
+check('寄回页：预估费用不产出金额标签', pddReturn.amountLabel, '');
+check('寄回页：无品牌词时平台返回 unknown', pddReturn.platform, '');
+check(
+  '寄回页：「明天09:00-11:00」是相对日期，不填进取件时间',
+  pddReturn.pickupTime,
+  ''
+);
+
 // ---------------------------------------------------------------- 平台字段
 section('OCR 平台字段抽取');
 

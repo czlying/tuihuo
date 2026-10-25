@@ -151,57 +151,46 @@
   background-color: var(--moss-bg);
 }
 
-/* ------------------------------------------------------------ 运势接口自检 */
-.probe-btn {
+/* ------------------------------------------------------------ 外观 · 更换背景图 */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-top: 22rpx;
-  padding: 22rpx 0;
-  text-align: center;
-  border-radius: var(--radius-pill);
-  border: 1rpx solid var(--line-strong);
+  padding: 18rpx 22rpx;
+  border-radius: var(--radius-card);
+  border: 1rpx solid var(--line);
   background-color: #fff6fa;
+}
+.row-label {
   font-size: 26rpx;
   color: var(--ink);
 }
-
-.probe-result {
-  margin-top: 20rpx;
-  padding: 22rpx 24rpx;
-  border-radius: var(--radius-card);
-  border-left: 6rpx solid var(--brick);
-  background-color: var(--brick-bg);
+.row-right {
+  display: flex;
+  align-items: center;
 }
-.probe-result.is-ok {
-  border-left-color: var(--moss);
-  background-color: var(--moss-bg);
-}
-
-.probe-title {
-  display: block;
-  font-size: 25rpx;
-  color: var(--brick);
-  line-height: 1.5;
-}
-.probe-result.is-ok .probe-title {
-  color: var(--moss);
-}
-
-.probe-advice {
-  display: block;
-  margin-top: 10rpx;
+.row-value {
   font-size: 23rpx;
-  color: var(--ink-2);
-  line-height: 1.7;
-}
-
-.probe-detail {
-  display: block;
-  margin-top: 12rpx;
-  padding-top: 12rpx;
-  border-top: 1rpx dashed var(--line);
-  font-size: 21rpx;
   color: var(--ink-3);
-  line-height: 1.6;
-  word-break: break-all;
+}
+.row-thumb {
+  width: 76rpx;
+  height: 52rpx;
+  border-radius: 12rpx;
+  background-color: #ffe9f2;
+}
+.row-arrow {
+  margin-left: 12rpx;
+  font-size: 30rpx;
+  line-height: 1;
+  color: var(--ink-3);
+}
+.row-reset {
+  display: inline-block;
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: var(--candy-1);
 }
 
 /* ------------------------------------------------------------ 保存按钮 */

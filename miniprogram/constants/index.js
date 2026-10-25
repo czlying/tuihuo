@@ -43,7 +43,7 @@ const DEFAULT_RETURN_DAYS = 7;
 const MAX_RETURN_DAYS = 365;
 
 /** 前端构建版本：设置页可见，用于确认是否编译到最新代码 */
-const BUILD_VERSION = '2026-10-24.26';
+const BUILD_VERSION = '2026-10-24.30';
 
 /** 默认提醒档位：提前 3 天 / 1 天 / 当天。用户可在设置中覆盖 */
 const DEFAULT_REMIND_ADVANCE_DAYS = [3, 1, 0];

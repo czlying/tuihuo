@@ -2,43 +2,10 @@ const services = require('../../services/index');
 const settingsModel = require('../../models/settings');
 const { DEFAULT_RETURN_DAYS, BUILD_VERSION } = require('../../constants/index');
 const nav = require('../../utils/nav');
+const pageBg = require('../../utils/page-bg');
 
 /** 提醒档位预设（用户自定义的其他值会动态补进去） */
 const PRESET_ADVANCE = [7, 3, 1, 0];
-
-/**
- * 云函数自检返回值 -> 页面展示结构。
- *
- * 特判 UNKNOWN_ACTION：说明云端 api 还是旧代码（没有 horoscopeProbe 动作），
- * 这正是「配了 Key 却不生效」最常见的原因，必须单独点名，
- * 否则用户只会看到一句「未识别返回」。
- */
-function describeProbe(res) {
-  if (!res) {
-    return {
-      level: 'error',
-      title: '云函数没有返回结果',
-      advice: '请确认 api 云函数已部署，检查网络后重试。',
-    };
-  }
-
-  if (res.code === 'UNKNOWN_ACTION' || res.code === 'NO_ACTION') {
-    return {
-      level: 'error',
-      title: '云端 api 不是最新代码',
-      advice:
-        '云函数里还没有 horoscopeProbe 动作，说明新代码没上传。在开发者工具右键 cloudfunctions/api → 上传并部署（云端安装依赖），再点一次检测。',
-    };
-  }
-
-  if (res.ok && res.data && res.data.conclusion) return res.data.conclusion;
-
-  return {
-    level: 'error',
-    title: '自检返回异常',
-    advice: (res && res.message) || '未识别的返回结构，请查看云函数日志。',
-  };
-}
 
 Page({
   data: {
@@ -53,13 +20,16 @@ Page({
     subscribeFlag: false,
     buildVersion: BUILD_VERSION,
 
-    probing: false,
-    probeResult: null,
+    pageBg: '',
   },
 
   onLoad() {
     wx.setNavigationBarTitle({ title: '设置' });
     this.load();
+  },
+
+  onShow() {
+    pageBg.sync(this);
   },
 
   load() {
@@ -139,29 +109,56 @@ Page({
   },
 
   /**
-   * 运势接口自检：真实请求一次聚合数据接口，把失败原因摊在页面上。
-   * 结果不落库、不改任何设置，纯排查用。
+   * 更换背景图：只用官方相册选图接口，不申请其他权限。
+   * 选中的是临时路径，先转存到本地用户目录，再把路径写进 data 立即生效。
    */
-  onProbeFortune() {
-    if (this.data.probing) return;
+  onChooseBg() {
+    if (this._bgPicking) return;
+    this._bgPicking = true;
 
-    this.setData({ probing: true, probeResult: null });
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['image'],
+      sourceType: ['album'],
+      sizeType: ['compressed'],
+      success: (res) => {
+        const file = res.tempFiles && res.tempFiles[0];
+        if (!file || !file.tempFilePath) {
+          this._bgPicking = false;
+          return;
+        }
 
-    services.fortune
-      .probe()
-      .then((res) => {
-        this.setData({ probing: false, probeResult: describeProbe(res) });
-      })
-      .catch((err) => {
-        this.setData({
-          probing: false,
-          probeResult: {
-            level: 'error',
-            title: '自检请求失败',
-            advice: (err && err.message) || '请检查网络后重试',
-          },
-        });
-      });
+        wx.showLoading({ title: '保存中' });
+
+        pageBg
+          .save(file.tempFilePath)
+          .then((path) => {
+            wx.hideLoading();
+            this._bgPicking = false;
+            this.setData({ pageBg: path });
+            wx.showToast({ title: '已更换背景', icon: 'success' });
+          })
+          .catch((err) => {
+            wx.hideLoading();
+            this._bgPicking = false;
+            wx.showToast({
+              title: (err && err.message) || '背景图保存失败',
+              icon: 'none',
+            });
+          });
+      },
+      fail: () => {
+        // 取消选图不算失败，不弹提示
+        this._bgPicking = false;
+      },
+    });
+  },
+
+  /** 恢复默认渐变背景 */
+  onResetBg() {
+    pageBg.clear();
+    this.setData({ pageBg: '' });
+    wx.showToast({ title: '已恢复默认背景', icon: 'none' });
   },
 
   onSave() {

@@ -228,6 +228,15 @@ const handlers = {
         returnNoLabel: extracted.returnNoLabel,
         returnReason: extracted.returnReason,
         pickupCode: extracted.pickupCode,
+        // 取件码专用输出（识别取件码入口用）：标签命中为 high，
+        // 6 位数字正则兜底为 low，此时 need_confirm=true 让用户核对
+        pickup_code: extracted.pickupCode || null,
+        // confidence 与 pickup_confidence 同值：前者是「识别取件码」入口的约定字段名
+        confidence: extracted.pickupConfidence || '',
+        pickup_confidence: extracted.pickupConfidence || '',
+        need_confirm: !!extracted.needConfirm,
+        order_no: extracted.orderNo || null,
+        raw_lines: extracted.rawLines || [],
         pickupTime: extracted.pickupTime,
         statusRaw: extracted.statusRaw,
         statusKey: extracted.statusKey,

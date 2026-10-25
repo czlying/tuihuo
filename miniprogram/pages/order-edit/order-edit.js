@@ -3,6 +3,7 @@ const orderModel = require('../../models/order');
 const dateUtil = require('../../utils/date');
 const { fenToYuan } = require('../../utils/format');
 const nav = require('../../utils/nav');
+const pageBg = require('../../utils/page-bg');
 const { DEFAULT_RETURN_DAYS, MAX_VOUCHER_COUNT } = require('../../constants/index');
 
 function pad2(n) {
@@ -31,6 +32,26 @@ function indexToDeadlineTime(idx) {
   return pad2(Number(arr[0]) || 0) + ':' + pad2(Number(arr[1]) || 0) + ':' + pad2(Number(arr[2]) || 0);
 }
 
+/** 超过这个体积先压缩再上传（上传与云函数识别都更快） */
+const OCR_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * 识别用截图超过 5MB 时先压一次；压不动（低版本基础库/压缩失败）就用原图，
+ * 不让压缩失败阻塞识别。只用于 onOcrPick 的识别链路，凭证相册上传不压缩。
+ */
+function compressOcrImage(filePath, size) {
+  if (size <= OCR_MAX_BYTES || !wx.compressImage) return Promise.resolve(filePath);
+
+  return new Promise(function (resolve) {
+    wx.compressImage({
+      src: filePath,
+      quality: 70,
+      success: (res) => resolve((res && res.tempFilePath) || filePath),
+      fail: () => resolve(filePath),
+    });
+  });
+}
+
 Page({
   data: {
     mode: 'create', // create | edit
@@ -40,6 +61,7 @@ Page({
     loading: true,
     saving: false,
     errorMsg: '',
+    pageBg: '',
 
     // 表单字段
     productName: '',
@@ -80,6 +102,10 @@ Page({
     // 上门取件时间选择
     pickupPickerVisible: false,
     pickupTimeDraft: '',
+  },
+
+  onShow() {
+    pageBg.sync(this);
   },
 
   onLoad(options) {
@@ -401,8 +427,8 @@ Page({
 
         const adapter = services.adapter.getAdapter();
 
-        adapter
-          .uploadFile(file.tempFilePath)
+        compressOcrImage(file.tempFilePath, Number(file.size) || 0)
+          .then((path) => adapter.uploadFile(path))
           .then((uploadRes) => {
             this._ocrFileID = (uploadRes && uploadRes.fileID) || '';
 
@@ -548,6 +574,17 @@ Page({
     }
     if (data.pickupCode && !this.data.pickupCode) {
       patch.pickupCode = data.pickupCode;
+      // 非「取件码」标签命中（6 位数字兜底）时 need_confirm 为 true，
+      // 识别完成的提示会点名取件码，让用户重点核对
+      this._pickupNeedConfirm = !!data.need_confirm;
+    }
+    if (data.pickupCode) {
+      console.log(
+        '[OCR] 取件码',
+        data.pickupCode,
+        data.confidence || '',
+        data.need_confirm ? '(6 位数字兜底，需核对)' : ''
+      );
     }
     if (data.pickupTime && !this.data.pickupTimeDraft) {
       patch.pickupTimeDraft = data.pickupTime;
@@ -559,7 +596,13 @@ Page({
       if (patch.receiveDate) this.recalculateDeadline();
       // OCR 填了订单编号，立即查重；命中直接弹窗，不等用户点保存
       if (patch.orderNo) this._checkOrderNoNow(true, patch.orderNo);
-      wx.showToast({ title: '已识别，请核对', icon: 'success' });
+      // 取件码来自 6 位数字兜底时点名提示；标签命中的走常规「已识别，请核对」
+      if (patch.pickupCode && this._pickupNeedConfirm) {
+        wx.showToast({ title: '已识别，请核对取件码', icon: 'none' });
+      } else {
+        wx.showToast({ title: '已识别，请核对', icon: 'success' });
+      }
+      this._pickupNeedConfirm = false;
     } else {
       wx.showToast({ title: '未识别到可填内容，请手动录入', icon: 'none' });
     }

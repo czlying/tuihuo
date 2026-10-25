@@ -16,7 +16,7 @@
  */
 
 /** OCR 规则版本：部署后可在返回里确认云端是否已更新 */
-const OCR_RULE_VERSION = '2026-10-20.3';
+const OCR_RULE_VERSION = '2026-10-24.2';
 
 /** 商品名最大长度（与录入页商品名输入框 maxlength 保持一致） */
 const MAX_PRODUCT_NAME_LENGTH = 60;
@@ -136,6 +136,14 @@ function extractProductName(lines) {
     // 促销/进度/统计/平台导流/商品卡操作行
     if (
       /收集进度|拆盒后可|好评率|进店逛逛|价格明细|优惠解析|店铺优惠|共减|交易快照|共\d+项|来自豆包|豆包App|服务保障|买后必看|操作使用指南|使用指南|分享商品|再买一单|申请售后|联系商家|删除订单|追加评价|查看物流|更多信息|运费险|退换货自动理赔|快件|收件人|已领取|兔喜生活|号码保护|消费提醒|购后小助手|售后详情|承诺达|准时送达|商品快照|发生争议|可作为判断依据/.test(
+        line
+      )
+    )
+      continue;
+    // 寄回流程的进度节点与寄件服务说明：这些行长得最像商品名（「寄回商品」），
+    // 但真实商品名在这种页面里是缩略图，OCR 文本里没有——宁可空着让用户手填
+    if (
+      /寄回商品|寄件服务|寄件详情|寄件码|官方补贴|预估费用|费用详情|预约成功|已预约|取消预约|修改预约|重新预约|快递员将上门|上门后出示/.test(
         line
       )
     )
@@ -367,6 +375,111 @@ function extractPickupCode(text) {
   // 标签下面常跟一个「复制」按钮，不能把它当取件码
   return isNoiseLine(value) ? '' : value;
 }
+
+// ================================================================ 取件码（按平台分发）
+// 取件码在真实截图里的三种形态：
+//   1) 「取件码」标签下面一行的值——最可靠；
+//   2) 标签与值在同一行，如「取件码 123456」——valueAfterLabel 已覆盖；
+//   3) 标签被折叠/截断，页面上只剩一串 6 位数字——需要正则兜底。
+// 兜底只能算「低置信」：6 位数字也可能是短信验证码、取件序号，必须让用户核对。
+
+/** 取件码兜底正则：6 位纯数字（不动 8 位以上的订单号） */
+const PICKUP_CODE_RE = /\b\d{6}\b/g;
+
+/** 取件码标签关键词，判断「靠近哪个关键词」时用 */
+const PICKUP_LABEL_KEYWORDS = ['取件码', '取件号', '上门取件码', '寄件码'];
+
+/** 判断一行里是否出现了取件码标签 */
+function hasPickupLabel(line) {
+  const s = String(line || '');
+  for (let i = 0; i < PICKUP_LABEL_KEYWORDS.length; i++) {
+    if (s.indexOf(PICKUP_LABEL_KEYWORDS[i]) > -1) return true;
+  }
+  return false;
+}
+
+/**
+ * 标签后面取到的值，是不是「像个取件码」。
+ *
+ * 标签下面偶尔跟的是一句说明（如「请向快递员出示」），
+ * 这种没有数字的长串不能算取件码——否则会给出假的 high 置信度，
+ * 而这个置信度正是「要不要让用户核对」的开关。
+ */
+function looksLikePickupCode(value) {
+  const v = String(value || '').replace(/\s+/g, '');
+  if (!v || v.length > 24) return false;
+  return /\d/.test(v);
+}
+
+/**
+ * 兜底找取件码：全文扫描 6 位数字，取离「取件码」标签行最近的那个。
+ * 距离用行号差衡量；同一行优先；距离相同取靠前的，保证结果稳定可测。
+ * 页面里没有标签时取第一个命中的 6 位数字（仍是低置信）。
+ *
+ * @param {string[]} lines
+ * @returns {string} 命中返回 6 位数字，否则空串
+ */
+function findPickupCodeFallback(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+
+  let labelLine = -1;
+  for (let i = 0; i < list.length; i++) {
+    if (hasPickupLabel(list[i])) {
+      labelLine = i;
+      break;
+    }
+  }
+
+  let best = '';
+  let bestDistance = Infinity;
+
+  for (let i = 0; i < list.length; i++) {
+    const matched = String(list[i] || '').match(PICKUP_CODE_RE);
+    if (!matched || !matched.length) continue;
+
+    for (let j = 0; j < matched.length; j++) {
+      const distance = labelLine === -1 ? i : Math.abs(i - labelLine);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = matched[j];
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * 解析取件码：标签优先，正则兜底，并给出置信度。
+ * @returns {{code:string, confidence:'high'|'low'|'', source:'label'|'regex'|''}}
+ */
+function resolvePickupCode(text) {
+  const raw = extractPickupCode(text);
+  const labelCode = looksLikePickupCode(raw) ? String(raw).replace(/\s+/g, '') : '';
+  if (labelCode) return { code: labelCode, confidence: 'high', source: 'label' };
+
+  const fallbackCode = findPickupCodeFallback(toLines(text));
+  if (fallbackCode) return { code: fallbackCode, confidence: 'low', source: 'regex' };
+
+  return { code: '', confidence: '', source: '' };
+}
+
+/**
+ * 按平台取件码识别（预留接口）。
+ *
+ * 本期只实现拼多多（含「兔喜生活」包裹页）；其他平台按设计返回空，
+ * 由调用方提示用户手填——不在这一版里猜别的平台规则。
+ *
+ * @param {string} text OCR 原始文本
+ * @param {string} platform detectPlatform 得出的标准平台名
+ * @returns {{code:string, confidence:'high'|'low'|'', source:string}}
+ */
+function getPickupCodeByPlatform(text, platform) {
+  const name = String(platform || '');
+  if (name === '拼多多') return resolvePickupCode(text);
+  return { code: '', confidence: '', source: '' };
+}
+
 
 /** 品牌简称 → 平台清单里的标准名 */
 const PLATFORM_ALIASES = {
@@ -713,7 +826,12 @@ function extractPickupTime(text) {
 
   // 淘宝文案：「等待10月30日15:00—17:00 上门取件」
   const m = String(text || '').match(/([^\n]{0,24}\d[^\n]{0,16}上门取件)/);
-  if (m && /\d/.test(m[1])) return m[1].trim().slice(0, 40);
+  if (m && /\d/.test(m[1])) {
+    // 「明天09:00-11:00快递员将上门取件」是相对日期：取件时间字段存的是绝对时刻，
+    // 填个「明天」进去以后看不出来是哪天，宁可不填让用户自己写
+    if (/今天|明天|后天|今晚|上午|下午/.test(m[1])) return '';
+    return m[1].trim().slice(0, 40);
+  }
 
   return '';
 }
@@ -856,6 +974,13 @@ function analyzeOrder(text) {
   const returnNoInfo = extractReturnNoInfo(raw);
   const statusInfo = extractStatus(raw);
 
+  // 取件码：标签优先；拼多多额外走 6 位数字兜底（低置信，需用户核对）
+  const labelValue = extractPickupCode(raw);
+  const labelCode = looksLikePickupCode(labelValue) ? String(labelValue).replace(/\s+/g, '') : '';
+  const platformPickup = getPickupCodeByPlatform(raw, platformInfo.platform);
+  const pickupCode = labelCode || platformPickup.code || '';
+  const pickupConfidence = labelCode ? 'high' : platformPickup.code ? 'low' : '';
+
   return {
     ruleVersion: OCR_RULE_VERSION,
     platform: platformInfo.platform,
@@ -872,7 +997,12 @@ function analyzeOrder(text) {
     returnNo: returnNoInfo.value,
     returnNoLabel: returnNoInfo.label,
     returnReason: extractReturnReason(raw),
-    pickupCode: extractPickupCode(raw),
+    pickupCode: pickupCode,
+    pickupConfidence: pickupConfidence,
+    pickupCodeSource: labelCode ? 'label' : platformPickup.code ? platformPickup.source : '',
+    // 非「高置信」都要求用户核对：这是「识别→确认→写入」的闸
+    needConfirm: pickupConfidence !== 'high',
+    rawLines: toLines(raw),
     pickupTime: extractPickupTime(raw),
     statusRaw: statusInfo.raw,
     statusKey: statusInfo.key,
@@ -899,6 +1029,13 @@ module.exports = {
   extractReturnNo,
   extractReturnReason,
   extractPickupCode,
+  PICKUP_CODE_RE,
+  PICKUP_LABEL_KEYWORDS,
+  hasPickupLabel,
+  looksLikePickupCode,
+  findPickupCodeFallback,
+  resolvePickupCode,
+  getPickupCodeByPlatform,
   isPlatformNameOnly,
   yuanToFen,
 };

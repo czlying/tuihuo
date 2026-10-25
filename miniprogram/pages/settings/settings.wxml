@@ -1,5 +1,7 @@
 <view class="page">
 
+  <image wx:if="{{pageBg}}" class="page-bg" src="{{pageBg}}" mode="aspectFill" />
+
   <view wx:if="{{loading}}" class="loading">
     <text class="loading-text">正在读取…</text>
   </view>
@@ -90,24 +92,25 @@
       <text class="card-note">当前为个人主体小程序，微信暂不支持订阅消息。升级为个体工商户后可开启微信推送；在此之前，到期提醒以「首页退货名单 + 逾期提示」呈现。</text>
     </view>
 
-    <!-- 运势接口自检（排查用，不影响正常使用） -->
-    <view class="card">
+    <!-- 更换背景图入口已隐藏：相关逻辑（onChooseBg / onResetBg / utils/page-bg）保留，恢复时去掉下面 wx:if="{{false}}" 即可 -->
+    <view wx:if="{{false}}" class="card">
       <view class="card-head">
-        <text class="card-title">运势接口自检</text>
-        <text class="card-hint">排查用</text>
+        <text class="card-title">外观</text>
+        <text class="card-hint">仅本机保存</text>
       </view>
 
-      <view class="probe-btn tap" bindtap="onProbeFortune">
-        <text>{{probing ? '检测中…' : '检测运势接口'}}</text>
+      <view class="row tap" bindtap="onChooseBg">
+        <text class="row-label">更换背景图</text>
+        <view class="row-right">
+          <image wx:if="{{pageBg}}" class="row-thumb" src="{{pageBg}}" mode="aspectFill" />
+          <text wx:else class="row-value">默认渐变</text>
+          <text class="row-arrow">›</text>
+        </view>
       </view>
 
-      <view wx:if="{{probeResult}}" class="probe-result {{probeResult.level === 'ok' ? 'is-ok' : 'is-bad'}}">
-        <text class="probe-title">{{probeResult.title}}</text>
-        <text class="probe-advice">{{probeResult.advice}}</text>
-        <text wx:if="{{probeResult.detail}}" class="probe-detail">{{probeResult.detail}}</text>
-      </view>
+      <text wx:if="{{pageBg}}" class="row-reset tap" bindtap="onResetBg">恢复默认背景</text>
 
-      <text wx:else class="card-note">点一下会真实请求一次聚合数据接口，直接告诉你是 Key 没读到、云函数没部署，还是接口没开通。</text>
+      <text class="card-note">从相册选一张图，选中即时生效；背景不遮盖页面内容。</text>
     </view>
 
     <view class="btn-primary tap" bindtap="onSave">
