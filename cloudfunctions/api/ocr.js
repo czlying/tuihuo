@@ -16,7 +16,7 @@
  */
 
 /** OCR 规则版本：部署后可在返回里确认云端是否已更新 */
-const OCR_RULE_VERSION = '2026-10-24.2';
+const OCR_RULE_VERSION = '2026-10-28.4';
 
 /** 商品名最大长度（与录入页商品名输入框 maxlength 保持一致） */
 const MAX_PRODUCT_NAME_LENGTH = 60;
@@ -377,14 +377,15 @@ function extractPickupCode(text) {
 }
 
 // ================================================================ 取件码（按平台分发）
-// 取件码在真实截图里的三种形态：
+// 取件码必须「标签绑定」——这是最高优先级规则：
 //   1) 「取件码」标签下面一行的值——最可靠；
 //   2) 标签与值在同一行，如「取件码 123456」——valueAfterLabel 已覆盖；
-//   3) 标签被折叠/截断，页面上只剩一串 6 位数字——需要正则兜底。
-// 兜底只能算「低置信」：6 位数字也可能是短信验证码、取件序号，必须让用户核对。
+//   3) 标签存在但值没贴着（被折叠/换行错位）——按行距就近兜底，低于高置信。
+// 页面**没有**取件码标签时一律不出码：真实订单详情页只有「订单号」，
+// 而 261011-360343170593024 的前 6 位会被正则命中，误填成取件码（用户实测踩过）。
 
-/** 取件码兜底正则：6 位纯数字（不动 8 位以上的订单号） */
-const PICKUP_CODE_RE = /\b\d{6}\b/g;
+/** 取件码兜底正则：4~6 位纯数字 */
+const PICKUP_CODE_RE = /\b\d{4,6}\b/g;
 
 /** 取件码标签关键词，判断「靠近哪个关键词」时用 */
 const PICKUP_LABEL_KEYWORDS = ['取件码', '取件号', '上门取件码', '寄件码'];
@@ -401,23 +402,52 @@ function hasPickupLabel(line) {
 /**
  * 标签后面取到的值，是不是「像个取件码」。
  *
- * 标签下面偶尔跟的是一句说明（如「请向快递员出示」），
- * 这种没有数字的长串不能算取件码——否则会给出假的 high 置信度，
- * 而这个置信度正是「要不要让用户核对」的开关。
+ * 规则：4~6 位，**不含连字符**；允许 OCR 常见的字符混淆 O/o/l/I（后续归一化成数字）。
+ *   - 标签下面跟一句说明（如「请向快递员出示」）——没有数字，拒绝；
+ *   - 标签下面紧跟订单号（如 261011-360343170593024）——含连字符，拒绝；
+ * 这两种情况都会被当成取件码，前者给出假的 high，后者直接把订单号填进表单。
  */
 function looksLikePickupCode(value) {
   const v = String(value || '').replace(/\s+/g, '');
-  if (!v || v.length > 24) return false;
-  return /\d/.test(v);
+  return /^[0-9OolI]{4,6}$/.test(v);
 }
 
 /**
- * 兜底找取件码：全文扫描 6 位数字，取离「取件码」标签行最近的那个。
- * 距离用行号差衡量；同一行优先；距离相同取靠前的，保证结果稳定可测。
- * 页面里没有标签时取第一个命中的 6 位数字（仍是低置信）。
+ * 从一行里取「可作为取件码」的数字：4~6 位，且
+ *   - 前后不能紧邻字母数字（不是长串的一部分）
+ *   - 前后不能是「连字符 + 数字」（261011-360343170593024 属订单号，整串丢弃）
+ *
+ * @param {string} line
+ * @returns {string[]}
+ */
+function pickupCodeCandidates(line) {
+  const s = String(line || '');
+  const out = [];
+  const re = /\d{4,6}/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    const start = m.index;
+    const end = start + m[0].length;
+    const before = start > 0 ? s.charAt(start - 1) : '';
+    const after = end < s.length ? s.charAt(end) : '';
+    if (/[0-9A-Za-z]/.test(before) || /[0-9A-Za-z]/.test(after)) continue;
+
+    const afterNext = end + 1 < s.length ? s.charAt(end + 1) : '';
+    if (after === '-' && /\d/.test(afterNext)) continue;
+    const beforePrev = start > 1 ? s.charAt(start - 2) : '';
+    if (before === '-' && /\d/.test(beforePrev)) continue;
+
+    out.push(m[0]);
+  }
+  return out;
+}
+
+/**
+ * 兜底找取件码：仅在页面**存在**取件码标签时启用，
+ * 取离标签行最近的 4~6 位数字。距离相同取靠前的，保证结果稳定可测。
  *
  * @param {string[]} lines
- * @returns {string} 命中返回 6 位数字，否则空串
+ * @returns {string} 命中返回数字串，否则空串
  */
 function findPickupCodeFallback(lines) {
   const list = Array.isArray(lines) ? lines : [];
@@ -430,18 +460,19 @@ function findPickupCodeFallback(lines) {
     }
   }
 
+  // 标签绑定是硬前提：没有标签直接不出码，不做全页数字扫描
+  if (labelLine === -1) return '';
+
   let best = '';
   let bestDistance = Infinity;
 
   for (let i = 0; i < list.length; i++) {
-    const matched = String(list[i] || '').match(PICKUP_CODE_RE);
-    if (!matched || !matched.length) continue;
-
-    for (let j = 0; j < matched.length; j++) {
-      const distance = labelLine === -1 ? i : Math.abs(i - labelLine);
+    const candidates = pickupCodeCandidates(list[i]);
+    for (let j = 0; j < candidates.length; j++) {
+      const distance = Math.abs(i - labelLine);
       if (distance < bestDistance) {
         bestDistance = distance;
-        best = matched[j];
+        best = candidates[j];
       }
     }
   }
@@ -1001,7 +1032,8 @@ function analyzeOrder(text) {
     pickupConfidence: pickupConfidence,
     pickupCodeSource: labelCode ? 'label' : platformPickup.code ? platformPickup.source : '',
     // 非「高置信」都要求用户核对：这是「识别→确认→写入」的闸
-    needConfirm: pickupConfidence !== 'high',
+    // 非「高置信」都要求用户核对；但完全没有码时没有可核对的内容，置 false
+    needConfirm: !!pickupCode && pickupConfidence !== 'high',
     rawLines: toLines(raw),
     pickupTime: extractPickupTime(raw),
     statusRaw: statusInfo.raw,

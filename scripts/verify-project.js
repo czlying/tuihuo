@@ -366,6 +366,37 @@ console.log('\n[8] 校验器自检（用已知错误样本确认检测真的生�
   });
 })();
 
+// ============================================================ 文档与实现一致性
+// 教训（2026-10-28）：代码 schema 改了三轮，规则文档还停在旧字段，用户问「有没有更新到文档」才发现。
+// 这里把「pickup 输出字段」与手册 §15.6 的字段清单绑起来，任一侧改漏都会红。
+(function checkDocSchemaSync() {
+  const docPath = path.join(ROOT, 'docs', '2026-10-20-OCR平台识别规则手册.md');
+  if (!fs.existsSync(docPath)) {
+    fail('规则手册缺失：docs/2026-10-20-OCR平台识别规则手册.md');
+    return;
+  }
+  const doc = fs.readFileSync(docPath, 'utf8');
+
+  let keys = [];
+  try {
+    const pickup = require(path.join(ROOT, 'cloudfunctions', 'api', 'pickup-extract.js'));
+    keys = Object.keys(pickup.extractPickupStructured({ page_text: 'x' }));
+  } catch (err) {
+    fail('pickup-extract 无法加载：' + (err && err.message));
+    return;
+  }
+
+  const missing = keys.filter(function (k) { return doc.indexOf(k) < 0; });
+  if (missing.length) fail('手册缺字段说明：' + missing.join(', '));
+  else ok('手册已覆盖 pickup 全部 ' + keys.length + ' 个字段');
+
+  const legacy = ['express_no', 'pickup_type'].filter(function (k) {
+    return doc.indexOf(k) > -1;
+  });
+  if (legacy.length) fail('手册仍描述已移除字段：' + legacy.join(', '));
+  else ok('手册未残留已移除字段（express_no / pickup_type）');
+})();
+
 // ============================================================ 汇总
 console.log('\n' + '='.repeat(56));
 if (problems === 0) {

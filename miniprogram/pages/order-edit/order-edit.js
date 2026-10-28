@@ -572,19 +572,36 @@ Page({
     if (data.returnReason && !this.data.returnReason) {
       patch.returnReason = data.returnReason;
     }
-    if (data.pickupCode && !this.data.pickupCode) {
-      patch.pickupCode = data.pickupCode;
-      // 非「取件码」标签命中（6 位数字兜底）时 need_confirm 为 true，
-      // 识别完成的提示会点名取件码，让用户重点核对
-      this._pickupNeedConfirm = !!data.need_confirm;
+    // 取件码：结构化通道给出明确结论时以它为准——它说「没有取件码」就不能再退回
+    // 旧通道的猜测值。真实踩坑：订单详情页没有「取件码」标签，旧通道的 6 位数字兜底
+    // 把订单号前缀 261011 当成了取件码填进表单。
+    // 只有云端还是旧版（没返回 pickup 对象）时才回退到旧字段。
+    const structured = data.pickup || null;
+    const structuredReady = !!(structured && typeof structured.has_pickup_code === 'boolean');
+    const structuredCode =
+      structuredReady && structured.has_pickup_code
+        ? structured.pickup_code_normalized || structured.pickup_code_raw || ''
+        : '';
+    const pickupValue = structuredReady ? structuredCode : data.pickupCode || '';
+
+    if (pickupValue && !this.data.pickupCode) {
+      patch.pickupCode = pickupValue;
+      // 归一化值为空（区块分低或字符断裂）也算需要核对
+      this._pickupNeedConfirm = structuredReady
+        ? !!structured.low_confidence || !structured.pickup_code_normalized
+        : !!data.need_confirm;
     }
-    if (data.pickupCode) {
+    if (structuredReady) {
       console.log(
         '[OCR] 取件码',
-        data.pickupCode,
-        data.confidence || '',
-        data.need_confirm ? '(6 位数字兜底，需核对)' : ''
+        pickupValue || '未识别',
+        '平台=' + (structured.platform || 'unknown') +
+          ' 页型=' + (structured.page_type || '未判定') +
+          ' 原始=' + (structured.pickup_code_raw || '无'),
+        this._pickupNeedConfirm ? '(需核对)' : ''
       );
+    } else if (pickupValue) {
+      console.log('[OCR] 取件码（旧通道）', pickupValue, this._pickupNeedConfirm ? '(需核对)' : '');
     }
     if (data.pickupTime && !this.data.pickupTimeDraft) {
       patch.pickupTimeDraft = data.pickupTime;

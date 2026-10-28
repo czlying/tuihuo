@@ -16,6 +16,8 @@ const dateUtil = require('../miniprogram/utils/date');
 const format = require('../miniprogram/utils/format');
 const remind = require('../cloudfunctions/timerRemind/remind');
 const ocr = require('../cloudfunctions/api/ocr');
+const pickupExtract = require('../cloudfunctions/api/pickup-extract');
+const platformGate = require('../cloudfunctions/api/platform-gate');
 const fortune = require('../cloudfunctions/api/horoscope');
 const settingsModel = require('../miniprogram/models/settings');
 const navUtil = require('../miniprogram/utils/nav');
@@ -1082,9 +1084,9 @@ check(
   { code: '382915', confidence: 'high', source: 'label' }
 );
 check(
-  '取件码：无标签只有 6 位数字 → low/regex（需用户核对）',
+  '取件码：无标签不出码（标签绑定铁律）',
   ocr.getPickupCodeByPlatform('拼多多\n上门取件\n尊敬的客户\n382915', '拼多多'),
-  { code: '382915', confidence: 'low', source: 'regex' }
+  { code: '', confidence: '', source: '' }
 );
 check(
   '取件码：既无标签也无 6 位数字 → 空',
@@ -1130,8 +1132,23 @@ check('取件码：analyzeOrder 高置信不需要核对', pddHit.needConfirm, f
 check('取件码：analyzeOrder 输出 rawLines', pddHit.rawLines.indexOf('382915') > -1, true);
 
 const pddLow = ocr.analyzeOrder('拼多多\n退款/售后\n上门取件\n382915');
-check('取件码：analyzeOrder 低置信', pddLow.pickupConfidence, 'low');
-check('取件码：analyzeOrder 低置信必须用户核对', pddLow.needConfirm, true);
+check('取件码：analyzeOrder 无标签不出码', pddLow.pickupCode, '');
+check('取件码：无码时不需要核对', pddLow.needConfirm, false);
+check(
+  '取件码：带连字符订单号不会被当码',
+  ocr.getPickupCodeByPlatform('拼多多\n订单号：261011-360343170593024', '拼多多').code,
+  ''
+);
+check(
+  '取件码：标签旁只有订单号时也不出码（连字符整串丢弃）',
+  ocr.getPickupCodeByPlatform('拼多多\n取件码\n（暂无）\n订单号：261011-360343170593024', '拼多多').code,
+  ''
+);
+check(
+  '取件码：取件码与订单号共存时分别取（用户纠偏示例）',
+  ocr.getPickupCodeByPlatform('拼多多\n取件码\n261011\n订单编号\n261011-360343170593024', '拼多多').code,
+  '261011'
+);
 
 // ---------------------------------------------------------------- 寄回详情页真实回归
 section('OCR 寄回详情页真实回归（拼多多·预约成功页）');
@@ -1177,6 +1194,524 @@ check(
   '寄回页：「明天09:00-11:00」是相对日期，不填进取件时间',
   pddReturn.pickupTime,
   ''
+);
+
+// ---------------------------------------------------------------- 取件码结构化抽取
+section('取件码结构化抽取（pickup-extract）');
+
+const pxA = pickupExtract.extractPickupStructured({ page_text: pddReturnSample });
+check('结构化：A 页型为取件码页', pxA.page_type, 'pickup_code_page');
+check('结构化：A 有取件码', pxA.has_pickup_code, true);
+check('结构化：A 原始码', pxA.pickup_code_raw, '2281');
+check('结构化：A 归一化码', pxA.pickup_code_normalized, '2281');
+check('结构化：A 不是低置信', pxA.low_confidence, false);
+check('结构化：A 平台透传', pxA.platform, 'unknown');
+check('结构化：A 地址取件地址', pxA.address, '北京市北京市通州区通州区富河园23号楼4单元6层461');
+check(
+  '结构化：A 取件时间原样返回',
+  pxA.pickup_time,
+  '明天09:00-11:00快递员将上门取件'
+);
+check('结构化：A 字段数为 11', Object.keys(pxA).length, 11);
+check(
+  '结构化：A 无 null 字段',
+  Object.keys(pxA).filter(function (k) { return pxA[k] === null; }).length,
+  0
+);
+
+const pxB = pickupExtract.extractPickupStructured({ page_text: pddPickupLabel });
+check('结构化：B 原始码', pxB.pickup_code_raw, '382915');
+check('结构化：B 归一化码', pxB.pickup_code_normalized, '382915');
+
+const pxC = pickupExtract.extractPickupStructured({
+  page_text: [
+    '退货退款详情',
+    '请选择退货方式，退回商品',
+    '请在6天23小时内填写快递单号',
+    '上门取件',
+    '去服务点',
+    '去快递柜',
+    '自行退回',
+    '上门时间：今天下午都可以（13:00-19:00）',
+    '取件地址：河南省焦作市山阳区世纪大道2001号河南理工大学',
+    '立即退回',
+  ].join('\n'),
+});
+check('结构化：C 页型为售后详情', pxC.page_type, 'after_sale_detail');
+check('结构化：C 无取件码', pxC.has_pickup_code, false);
+check('结构化：C 码字段全空', pxC.pickup_code_raw + pxC.pickup_code_normalized, '');
+
+const pxApplied = pickupExtract.extractPickupStructured({
+  page_text: '退货退款详情\n退货申请成功\n已提交，等待商家处理\n商家处理中',
+});
+check('结构化：申请成功页型归为售后详情', pxApplied.page_type, 'after_sale_detail');
+check('结构化：申请成功页无码', pxApplied.has_pickup_code, false);
+
+check(
+  '结构化：O/o 保守归一化为 0',
+  pickupExtract.extractPickupStructured({ page_text: '取件码 O128' }).pickup_code_normalized,
+  '0128'
+);
+check(
+  '结构化：原始码保留 O 不修正',
+  pickupExtract.extractPickupStructured({ page_text: '取件码 O128' }).pickup_code_raw,
+  'O128'
+);
+
+const pxLowScore = pickupExtract.extractPickupStructured({
+  page_text: '取件码 2281',
+  blocks: [{ text: '2281', bbox: { x: 0, y: 0, w: 40, h: 20 }, score: 0.4 }],
+});
+check('结构化：区块分 0.4 标低置信', pxLowScore.low_confidence, true);
+check('结构化：低置信时归一化留空', pxLowScore.pickup_code_normalized, '');
+check('结构化：低置信时原始码照填', pxLowScore.pickup_code_raw, '2281');
+
+const pxHighScore = pickupExtract.extractPickupStructured({
+  page_text: '取件码 2281',
+  blocks: [{ text: '2281', bbox: { x: 0, y: 0, w: 40, h: 20 }, score: 0.95 }],
+});
+check('结构化：区块分 0.95 不标低置信', pxHighScore.low_confidence, false);
+
+check(
+  '结构化：字符断裂不补字符（直接判无码）',
+  pickupExtract.extractPickupStructured({ page_text: '取件码 2 2 8 1' }).has_pickup_code,
+  false
+);
+
+const pxOrderNoise = pickupExtract.extractPickupStructured({
+  page_text: '拼多多\n订单编号 25100112345678\n取件码 2281\n待取件',
+});
+check('结构化：订单号不被当取件码', pxOrderNoise.pickup_code_raw, '2281');
+check('结构化：订单号填进 order_sn', pxOrderNoise.order_sn, '25100112345678');
+
+check(
+  '结构化：多个数字串取离标签最近',
+  pickupExtract.extractPickupStructured({ page_text: '待取件\n13800001111\n取件码\n2281\n2026' })
+    .pickup_code_raw,
+  '2281'
+);
+check(
+  '结构化：提货码标签同样生效',
+  pickupExtract.extractPickupStructured({ page_text: '提货码 6612\n快递柜' }).pickup_code_raw,
+  '6612'
+);
+check(
+  '结构化：无标签不猜',
+  pickupExtract.extractPickupStructured({ page_text: '待取件\n快递员将上门取件\n2281' })
+    .has_pickup_code,
+  false
+);
+const pxLogistics = pickupExtract.extractPickupStructured({
+  page_text: '物流详情\n运单号 SF1234567890123\n快递公司：顺丰',
+});
+check('结构化：物流页在 schema 里归 unknown', pxLogistics.page_type, 'unknown');
+check('结构化：物流页无取件码', pxLogistics.has_pickup_code, false);
+check('结构化：物流页抽到快递公司', pxLogistics.express_company, '顺丰');
+check(
+  '结构化：商家地址里的「拒收申通」不算承运商',
+  pickupExtract.extractPickupStructured({
+    page_text: '商家地址：吴晓城（拒收申通）\n取件码 2281',
+  }).express_company,
+  ''
+);
+check(
+  '结构化：年份不当取件码（兜底路径）',
+  pickupExtract.extractPickupStructured({ page_text: '取件码 无效\n2026' }).pickup_code_raw,
+  ''
+);
+// 长串不能被切成 8 位片段：否则 15 位订单号会「长出一个取件码」
+check('结构化：15 位订单号不切出片段', pickupExtract.codeTokens('25100112345678'), []);
+check(
+  '结构化：带连字符订单号不切出片段',
+  pickupExtract.codeTokens('订单号：261015-521320568353024 | 复制'),
+  []
+);
+check(
+  '结构化：标签旁只有订单号时判无码',
+  pickupExtract.extractPickupStructured({
+    page_text: '待取件\n取件码\n（暂无）\n订单编号 25100112345678',
+  }).has_pickup_code,
+  false
+);
+check(
+  '结构化：带连字符订单号在标签旁也不当取件码',
+  pickupExtract.extractPickupStructured({
+    page_text: '待取件\n取件码\n订单号：261015-521320568353024 | 复制',
+  }).has_pickup_code,
+  false
+);
+
+// 2026-10-28 用户实测样本（图1 订单详情页）：页面上只有「订单号」，没有「取件码」标签。
+// 旧通道的 6 位数字兜底把订单号前缀 261011 填进了取件码，这里固化为回归。
+const img1Sample = [
+  '已签收 已按承诺时间送达',
+  '您的快件已领取，收件人在[兔喜生活]',
+  '2026-10-13 21:21:11',
+  '王超 153****2037 号码保护中',
+  '通州区富河园23号楼4单元6层461',
+  '霖霖D杂货铺 11.11',
+  '观赏鱼杀菌盐海盐养鱼专用鱼缸消毒盐净化水质预防鱼病水族',
+  '【除黄防臭杀菌】袋装1000克',
+  '¥9.7 ×1',
+  '退货包运费保障中',
+  '承诺达·已准时送达',
+  '购后小助手 查看使用说明书',
+  '售后详情',
+  '联系商家',
+  '先用后付 实付：¥0',
+  '15小时后，自动确认收货并付款¥9.7',
+  '订单号：261011-360343170593024 复制',
+  '商品快照：发生交易争议时，可作为判断依据',
+  '消费提醒',
+  '更多',
+  '延长收货',
+  '查看物流',
+  '确认收货',
+].join('\n');
+
+const img1Gate = platformGate.detectPlatformGate(img1Sample);
+const img1Pickup = pickupExtract.extractPickupStructured({
+  page_text: img1Sample,
+  platform: img1Gate.platform,
+  platform_conf: img1Gate.platform_conf,
+});
+check('图1：平台判 pdd', img1Gate.platform, 'pdd');
+check('图1：页型为订单详情', img1Pickup.page_type, 'order_detail');
+check('图1：无取件码标签 → has=false', img1Pickup.has_pickup_code, false);
+check('图1：取件码 raw 为空（订单号前缀不算）', img1Pickup.pickup_code_raw, '');
+check('图1：取件码 normalized 为空', img1Pickup.pickup_code_normalized, '');
+check('图1：订单号保留连字符完整串', img1Pickup.order_sn, '261011-360343170593024');
+check('图1：schema 11 字段', Object.keys(img1Pickup).length, 11);
+check('图1：platform_conf 透传', img1Pickup.platform_conf, 'high');
+check(
+  '图1：旧通道也不出码（标签绑定）',
+  ocr.analyzeOrder(img1Sample).pickupCode,
+  ''
+);
+check(
+  '结构化：商家地址旁的「复制」不是取件码按钮',
+  pickupExtract.extractPickupStructured({
+    page_text: '退货退款详情\n商家地址 汉世刘家退货组 复制\n取件码\n（暂无）',
+  }).has_pickup_code,
+  false
+);
+
+// 规则表 §4.3：门牌号、金额、单号里的数字都不是取件码（三条取值路径都要挡住）
+check(
+  '结构化：标签下一行是取件地址时不当码',
+  pickupExtract.extractPickupStructured({ page_text: '取件码\n（暂无）\n取件地址 3021号 复制' })
+    .has_pickup_code,
+  false
+);
+check(
+  '结构化：标签下一行是商家地址时不当码',
+  pickupExtract.extractPickupStructured({ page_text: '取件码\n（暂无）\n商家地址 汉世刘家 5578 复制' })
+    .has_pickup_code,
+  false
+);
+check(
+  '结构化：标签下一行是金额行时不当码',
+  pickupExtract.extractPickupStructured({ page_text: '取件码\n（暂无）\n实付 ¥ 6621 复制' })
+    .has_pickup_code,
+  false
+);
+check(
+  '结构化：「复制」路径上也挡住地址门牌',
+  pickupExtract.extractPickupStructured({
+    page_text: '取件码\n请在快递员上门后出示\n退货商品：\n取件地址 3021号 复制',
+  }).has_pickup_code,
+  false
+);
+check(
+  '结构化：地址行不影响真正的取件码',
+  pickupExtract.extractPickupStructured({ page_text: '取件码 2281\n取件地址 3021号' }).pickup_code_raw,
+  '2281'
+);
+
+// 订单详情页：规则表 §5 —— 该页没有运单号/承运商字段，抽出即误抽
+const pxOrderPage = pickupExtract.extractPickupStructured({
+  page_text: [
+    '已签收 已按承诺时间送达',
+    '您的快件已领取，收件人在[兔喜生活]',
+    '王超 153****2037 号码保护中',
+    '通州区富河园23号楼4单元6层461',
+    '霖霖D杂货铺 11.11',
+    '观赏鱼杀菌盐 ¥9.7 ×1',
+    '分享商品',
+    '联系商家',
+    '售后详情',
+    '先用后付 实付：¥0',
+    '订单号：261011-360343170593024 | 复制',
+    '商品快照：发生交易争议时，可作为判断依据',
+    '查看物流',
+    '确认收货',
+  ].join('\n'),
+  platform: 'pdd',
+  platform_conf: 'high',
+});
+check('结构化：订单详情页型', pxOrderPage.page_type, 'order_detail');
+check('结构化：订单详情页无取件码', pxOrderPage.has_pickup_code, false);
+check('结构化：订单号保留连字符', pxOrderPage.order_sn, '261011-360343170593024');
+check('结构化：订单详情页承运商置空', pxOrderPage.express_company, '');
+
+// ---------------------------------------------------------------- 第 0 步：平台闸门
+section('第 0 步平台闸门（platform-gate）');
+
+const gateA = platformGate.detectPlatformGate(pddReturnSample);
+check('闸门：真机截图判 pdd', gateA.platform, 'pdd');
+check('闸门：真机截图 high（专属组件）', gateA.platform_conf, 'high');
+check('闸门：high 走全规则', gateA.mode, 'full');
+check(
+  '闸门：证据里出现专属组件',
+  gateA.evidence.some(function (e) { return e.indexOf('拼多多专属组件') === 0; }),
+  true
+);
+
+check(
+  '闸门：品牌词直接 pdd high',
+  platformGate.detectPlatformGate('拼多多\n退款/售后').platform_conf,
+  'high'
+);
+check(
+  '闸门：淘宝页判 taobao',
+  platformGate.detectPlatformGate('我的淘宝\n已买到的宝贝\n退款编号 87654321').platform,
+  'taobao'
+);
+check(
+  '闸门：淘宝页不跑拼多多规则',
+  platformGate.detectPlatformGate('我的淘宝\n已买到的宝贝\n退款编号 87654321').mode,
+  'label_only'
+);
+check(
+  '闸门：京东页判 jd',
+  platformGate.detectPlatformGate('我的京东\n退换/售后\n服务单号 123456789').platform,
+  'jd'
+);
+check(
+  '闸门：京东仅服务单号+进度查询给 mid',
+  platformGate.detectPlatformGate('服务单号 SF2026\n进度查询').platform_conf,
+  'mid'
+);
+check(
+  '闸门：顺丰壳子（无业务词）判 express',
+  platformGate.detectPlatformGate('顺丰速运\n运单详情\n快件已发出').platform,
+  'express'
+);
+check(
+  '闸门：只有「取件码」三个字必须 unknown',
+  platformGate.detectPlatformGate('取件码 2281').platform,
+  'unknown'
+);
+check(
+  '闸门：取件码 + 待取件（2 条弱信号）给 pdd low',
+  platformGate.detectPlatformGate('取件码 2281\n待取件').platform_conf,
+  'low'
+);
+check(
+  '闸门：pdd low 降级为 label_only',
+  platformGate.detectPlatformGate('取件码 2281\n待取件').mode,
+  'label_only'
+);
+check(
+  '闸门：组件单条即 pdd high（本轮规则列为强信号）',
+  platformGate.detectPlatformGate('商家处理中\n售后详情').platform_conf,
+  'high'
+);
+check(
+  '闸门：组件两条仍为 high',
+  platformGate.detectPlatformGate('售后详情\n上门取件').platform_conf,
+  'high'
+);
+check(
+  '闸门：短信落款拼多多',
+  platformGate.detectPlatformGate('【拼多多】您的退货已预约成功，退订回T').platform,
+  'pdd'
+);
+check(
+  '闸门：微信壳子无业务方判 unknown',
+  platformGate.detectPlatformGate('微信支付\n服务通知\n通知详情').platform,
+  'unknown'
+);
+check(
+  '闸门：退货单号 26 开头算强信号',
+  platformGate.detectPlatformGate('退货单号\n260123456789012\n取件码 2281').platform_conf,
+  'high'
+);
+check(
+  '闸门：订单编号是弱信号，单条只给 low',
+  platformGate.detectPlatformGate('退货退款详情\n订单号：261015-521320568353024').platform_conf,
+  'low'
+);
+check(
+  '闸门：订单编号 + 取件码（2 条弱信号）→ pdd low',
+  platformGate.detectPlatformGate('订单号：261022-436710960673024\n取件码 2281').platform,
+  'pdd'
+);
+check(
+  '闸门：订单号格式进弱信号证据',
+  platformGate.detectPlatformGate('订单号：261022-436710960673024').evidence[0],
+  '弱信号：订单编号'
+);
+check(
+  '闸门：有淘宝品牌词时不判 pdd（品牌优先）',
+  platformGate.detectPlatformGate('我的淘宝\n订单号：5127805153821039333\n取件码 2281').platform,
+  'taobao'
+);
+check(
+  '闸门：19 位订单号本身不是拼多多信号',
+  platformGate.detectPlatformGate('订单号：5127805153821039333').platform,
+  'unknown'
+);
+check(
+  '闸门：普通订单号不触发 pdd',
+  platformGate.detectPlatformGate('订单编号 123456789012').platform,
+  'unknown'
+);
+check(
+  '闸门：普通退货单号不算强信号',
+  platformGate.detectPlatformGate('退货单号\nVPH001\n取件码 2281').platform,
+  'unknown'
+);
+
+// 降级：平台不达标时不跑拼多多专属的邻近兜底
+const degradeText = '取件码\n请在快递员上门后出示\n退货商品：\n2281';
+check(
+  '降级：pdd 全规则时邻近兜底生效',
+  pickupExtract.extractPickupStructured({
+    page_text: degradeText,
+    platform: 'pdd',
+    platform_conf: 'high',
+  }).pickup_code_raw,
+  '2281'
+);
+check(
+  '降级：平台为 taobao 时不跑邻近兜底',
+  pickupExtract.extractPickupStructured({
+    page_text: degradeText,
+    platform: 'taobao',
+    platform_conf: 'high',
+  }).has_pickup_code,
+  false
+);
+check(
+  '降级：平台 unknown 命中标签也要标低置信',
+  pickupExtract.extractPickupStructured({
+    page_text: '取件码 2281',
+    platform: 'unknown',
+    platform_conf: 'low',
+  }).low_confidence,
+  true
+);
+check(
+  '降级：pdd high 命中标签为高置信',
+  pickupExtract.extractPickupStructured({
+    page_text: '取件码 2281',
+    platform: 'pdd',
+    platform_conf: 'high',
+  }).low_confidence,
+  false
+);
+check(
+  '降级：未传平台时保持既有行为（不因平台降级）',
+  pickupExtract.extractPickupStructured({ page_text: '取件码 2281' }).low_confidence,
+  false
+);
+
+// ---------------------------------------------------------------- 平台隔离
+section('平台隔离（不同平台规则不可混淆）');
+
+// 底线（用户 2026-10-28 明确）：别的平台的页面不能被拼多多的文案抢走，
+// 拼多多的专属兜底也不能套到别的平台上。
+check(
+  '隔离：淘宝页含 2 条拼多多专属组件，仍判 taobao',
+  platformGate.detectPlatformGate('我的淘宝\n已买到的宝贝\n寄件详情\n撤销售后\n退款编号 87654321')
+    .platform,
+  'taobao'
+);
+check(
+  '隔离：京东页含 2 条拼多多专属组件，仍判 jd',
+  platformGate.detectPlatformGate('我的京东\n服务单号 123\n寄件详情\n撤销售后').platform,
+  'jd'
+);
+check(
+  '隔离：拼多多页靠专属组件仍判 pdd',
+  platformGate.detectPlatformGate('寄回商品\n撤销售后\n寄件详情').platform,
+  'pdd'
+);
+
+// 旧通道只服务拼多多，其他平台一律返回空
+check(
+  '隔离：旧通道对淘宝返回空',
+  ocr.getPickupCodeByPlatform('取件码 2281', '淘宝'),
+  { code: '', confidence: '', source: '' }
+);
+check(
+  '隔离：旧通道对京东返回空',
+  ocr.getPickupCodeByPlatform('取件码 2281', '京东'),
+  { code: '', confidence: '', source: '' }
+);
+check(
+  '隔离：旧通道对拼多多正常返回',
+  ocr.getPickupCodeByPlatform('取件码 2281', '拼多多'),
+  { code: '2281', confidence: 'high', source: 'label' }
+);
+
+// 拼多多专属的「邻近兜底」不得套到其他平台
+const isolatedText = '取件码\n请在快递员上门后出示\n退货商品：\n2281';
+check(
+  '隔离：pdd 全规则时可走邻近兜底',
+  pickupExtract.extractPickupStructured({
+    page_text: isolatedText,
+    platform: 'pdd',
+    platform_conf: 'high',
+  }).pickup_code_raw,
+  '2281'
+);
+check(
+  '隔离：淘宝不跑拼多多专属兜底',
+  pickupExtract.extractPickupStructured({
+    page_text: isolatedText,
+    platform: 'taobao',
+    platform_conf: 'high',
+  }).has_pickup_code,
+  false
+);
+check(
+  '隔离：京东不跑拼多多专属兜底',
+  pickupExtract.extractPickupStructured({
+    page_text: isolatedText,
+    platform: 'jd',
+    platform_conf: 'high',
+  }).has_pickup_code,
+  false
+);
+check(
+  '隔离：非 pdd 命中标签也要标低置信',
+  pickupExtract.extractPickupStructured({
+    page_text: '取件码 2281',
+    platform: 'taobao',
+    platform_conf: 'high',
+  }).low_confidence,
+  true
+);
+check(
+  '隔离：快递壳子页判 express 且不出码',
+  (function () {
+    const text = '顺丰速运\n运单详情\n快件已发出';
+    const gate = platformGate.detectPlatformGate(text);
+    const r = pickupExtract.extractPickupStructured({
+      page_text: text,
+      platform: gate.platform,
+      platform_conf: gate.platform_conf,
+    });
+    return gate.platform + '/' + r.has_pickup_code;
+  })(),
+  'express/false'
+);
+check(
+  '隔离：唯品会/苏宁等未接品牌词的平台不判 pdd',
+  platformGate.detectPlatformGate('唯品会\n退货详情\n快递员已取回商品').platform,
+  'unknown'
 );
 
 // ---------------------------------------------------------------- 平台字段

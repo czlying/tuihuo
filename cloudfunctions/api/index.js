@@ -32,6 +32,10 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
 // OCR 纯逻辑（字段抽取），独立文件便于测试
 const ocr = require('./ocr');
+// 取件码结构化抽取（版面 + 标签优先，不猜），独立文件便于 Node 测试
+const pickupExtract = require('./pickup-extract');
+// 第 0 步平台闸门（pdd / taobao / jd / express / unknown），决定后续规则用哪档
+const platformGate = require('./platform-gate');
 // 星座运势（聚合数据代理）：纯逻辑 + 请求，独立文件便于 Node 测试
 const horoscope = require('./horoscope');
 
@@ -206,8 +210,48 @@ const handlers = {
       .map(function (d) { return d.DetectedText || ''; })
       .join('\n');
 
+    // 3.1 版面区块（text + bbox + score）：取件码抽取用它做邻近判断与置信度，
+    //     腾讯云 OCR 的 ItemPolygon 是 {X,Y,Width,Height}，Confidence 是 0-100
+    const blocks = (resp.TextDetections || []).map(function (d) {
+      const poly = d.ItemPolygon || {};
+      return {
+        text: d.DetectedText || '',
+        bbox: {
+          x: Number(poly.X) || 0,
+          y: Number(poly.Y) || 0,
+          w: Number(poly.Width) || 0,
+          h: Number(poly.Height) || 0,
+        },
+        score: typeof d.Confidence === 'number' ? d.Confidence / 100 : 0,
+      };
+    });
+
     // 4. 平台感知的结构化抽取（平台 + 置信度 + 订单/售后字段）
     const extracted = ocr.analyzeOrder(rawText);
+
+    // 4.1 第 0 步：平台闸门（英文平台码 + 置信档 + 命中证据 + 规则档位）
+    const gate = platformGate.detectPlatformGate(rawText);
+
+    // 4.1.1 闸门结果回填既有中文字段：无品牌词的拼多多售后页，analyzeOrder 会给空，
+    //       此时用闸门兜一次（只补 pdd 且非 low，其他平台不抢既有结论）
+    const gatePddName = gate.platform === 'pdd' && gate.platform_conf !== 'low' ? '拼多多' : '';
+    const formPlatform = extracted.platform || gatePddName;
+    const formPlatformConfidence =
+      extracted.platform && extracted.platformConfidence !== 'unknown'
+        ? extracted.platformConfidence
+        : gatePddName
+          ? gate.platform_conf === 'mid'
+            ? 'medium'
+            : gate.platform_conf
+          : 'unknown';
+
+    // 4.2 取件码结构化结果（新增通道，8 个字段；平台不达标时只做通用标签抽取）
+    const pickup = pickupExtract.extractPickupStructured({
+      page_text: rawText,
+      blocks: blocks,
+      platform: gate.platform,
+      platform_conf: gate.platform_conf,
+    });
 
     return {
       ok: true,
@@ -218,8 +262,8 @@ const handlers = {
         amount: extracted.amount,
         amountLabel: extracted.amountLabel,
         date: extracted.date,
-        platform: extracted.platform,
-        platformConfidence: extracted.platformConfidence,
+        platform: formPlatform,
+        platformConfidence: formPlatformConfidence,
         pageKind: extracted.pageKind,
         orderNo: extracted.orderNo,
         orderNoLabel: extracted.orderNoLabel,
@@ -235,6 +279,11 @@ const handlers = {
         confidence: extracted.pickupConfidence || '',
         pickup_confidence: extracted.pickupConfidence || '',
         need_confirm: !!extracted.needConfirm,
+        // 取件码结构化抽取结果（页型 / 原始码 / 归一化码 / 低置信 / 快递公司 / 订单号 / 时间 / 地址）
+        pickup: pickup,
+        // 第 0 步平台闸门：platform 是英文码（pdd/taobao/jd/express/unknown），
+        // 与上面既有中文 `platform` 并存，两者用途不同
+        platform_gate: gate,
         order_no: extracted.orderNo || null,
         raw_lines: extracted.rawLines || [],
         pickupTime: extracted.pickupTime,
