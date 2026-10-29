@@ -22,6 +22,7 @@ const fortune = require('../cloudfunctions/api/horoscope');
 const settingsModel = require('../miniprogram/models/settings');
 const navUtil = require('../miniprogram/utils/nav');
 const fortuneCache = require('../miniprogram/utils/fortune-cache');
+const localFortune = require('../miniprogram/utils/fortune-local');
 const wxcloud = require('../miniprogram/services/adapters/wxcloud');
 
 let passed = 0;
@@ -504,6 +505,81 @@ check(
   JSON.stringify(fortuneCache.make('今日运势不错', '2026-10-24')),
   '{"date":"2026-10-24","text":"今日运势不错"}'
 );
+
+// ------------------------------------------------------- 本地运势文本（utils/fortune-local.js）
+// 换成「读本地文本」之后，文案正确性由这个模块保证：
+// 同一天必须稳定、跨天要有变化、缺数据必须返回空串（不回退网站）。
+section('本地运势文本');
+
+check("本地文本：默认星座为双鱼座", localFortune.SIGN, '双鱼座');
+
+check(
+  "本地文本：同一天两次取值一致（当天不跳变）",
+  localFortune.getFortuneText('2026-10-29') === localFortune.getFortuneText('2026-10-29'),
+  true
+);
+
+check(
+  "本地文本：取到的文案必须来自双鱼座文案池",
+  localFortune.BY_SIGN['双鱼座'].indexOf(localFortune.getFortuneText('2026-10-29')) > -1,
+  true
+);
+
+check("本地文本：空日期返回空串", localFortune.getFortuneText(''), '');
+
+check(
+  "本地文本：星座不在池里且公共池为空 → 返回空串（不编造）",
+  localFortune.getFortuneText('2026-10-29', '天秤座'),
+  ''
+);
+
+check(
+  "本地文本：池中只有一条时，30 天每天都返回同一条（需求：每天都显示同一句）",
+  (function () {
+    const seen = {};
+    for (let i = 1; i <= 30; i++) {
+      const d = '2026-11-' + (i < 10 ? '0' + i : String(i));
+      seen[localFortune.getFortuneText(d)] = true;
+    }
+    const keys = Object.keys(seen);
+    return keys.length === 1 && keys[0] === localFortune.BY_SIGN['双鱼座'][0];
+  })(),
+  true
+);
+
+check(
+  "本地文本：多条目池下哈希未退化（30 个不同日期至少取到 2 种）",
+  (function () {
+    const pool = ['甲', '乙', '丙'];
+    const seen = {};
+    for (let i = 1; i <= 30; i++) {
+      seen[localFortune.pickFrom(pool, '2026-11-' + (i < 10 ? '0' + i : String(i)))] = true;
+    }
+    return Object.keys(seen).length >= 2;
+  })(),
+  true
+);
+
+check(
+  "本地文本：BY_DATE 精确指定优先于星座池",
+  (function () {
+    localFortune.BY_DATE['2099-12-31'] = '测试专用文案';
+    const got = localFortune.getFortuneText('2099-12-31');
+    delete localFortune.BY_DATE['2099-12-31'];
+    return got;
+  })(),
+  '测试专用文案'
+);
+
+check(
+  "本地文本：池内空字符串条目不会被选中",
+  localFortune.pickFrom(['', '   ', '唯一有效文案'], 'seed'),
+  '唯一有效文案'
+);
+
+check("本地文本：空池返回空串", localFortune.pickFrom([], 'seed'), '');
+
+check("本地文本：非数组入参返回空串", localFortune.pickFrom(null, 'seed'), '');
 
 // ------------------------------------------------------- 提醒档位判定（M-3）
 // 这一组覆盖「档位漏推」问题：档位当天被跳过（免扰/未授权/异常）后，
