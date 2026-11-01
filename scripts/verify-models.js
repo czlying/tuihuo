@@ -18,6 +18,7 @@ const remind = require('../cloudfunctions/timerRemind/remind');
 const ocr = require('../cloudfunctions/api/ocr');
 const pickupExtract = require('../cloudfunctions/api/pickup-extract');
 const platformGate = require('../cloudfunctions/api/platform-gate');
+const douyinExtract = require('../cloudfunctions/api/douyin-extract');
 const fortune = require('../cloudfunctions/api/horoscope');
 const settingsModel = require('../miniprogram/models/settings');
 const navUtil = require('../miniprogram/utils/nav');
@@ -459,6 +460,50 @@ check("订单为 null 返回空数组", orderModel.voucherFileIds(null), []);
 check(
   "voucher 非数组时返回空数组",
   orderModel.voucherFileIds({ voucher: 'cloud://x' }),
+  []
+);
+
+// 编辑保存后清理「被移除的凭证图」：只能删不再被引用的，不能误删仍在用的
+section('凭证图差集（编辑保存后清理云存储）');
+
+check(
+  '移除一张：只返回被移除的那个',
+  orderModel.removedVoucherFiles(['a', 'b', 'c'], ['a', 'c']),
+  ['b']
+);
+check(
+  '全部保留：差集为空',
+  orderModel.removedVoucherFiles(['a', 'b'], ['a', 'b']),
+  []
+);
+check(
+  '全部移除：返回全部',
+  orderModel.removedVoucherFiles(['a', 'b'], []),
+  ['a', 'b']
+);
+check(
+  '保存前为空（新建态）：不删任何东西',
+  orderModel.removedVoucherFiles([], ['a', 'b']),
+  []
+);
+check(
+  '新增了图但没有移除：差集仍为空',
+  orderModel.removedVoucherFiles(['a'], ['a', 'b']),
+  []
+);
+check(
+  '先删后加同一张：不算移除',
+  orderModel.removedVoucherFiles(['a', 'b'], ['b', 'a', 'c']),
+  []
+);
+check(
+  '重复与空值不影响判定',
+  orderModel.removedVoucherFiles(['a', 'a', '', null], ['a']),
+  []
+);
+check(
+  '入参非数组时返回空数组',
+  orderModel.removedVoucherFiles(null, ['a']),
   []
 );
 
@@ -913,6 +958,163 @@ check(
   ocr.extractProductName(['128.50', '合计', '水杯']),
   '水杯'
 );
+
+// ---------------------------------------------------------------------------
+// 系统权限横幅 + 营销角标（2026-10-31 真机样本）
+//
+// 拍图时微信弹「"拼多多"仅可访问部分照片 / 现在如需修改其照片访问范围请前往设置。」，
+// OCR 把这句拆成「现在」+ 正文两行，前者只有两个字，对任何过滤词都免疫，
+// 先被当成商品名，再被跨行拼接缝成一句。下面锁住区块剔除与四条判据。
+// ---------------------------------------------------------------------------
+const PHOTO_BANNER_SAMPLE = [
+  '20:52', '58.3 5G', '5GA', '65', 'KB/s', '“拼多多”仅可访问部分照片', '现在',
+  '如需修改其照片访问范围请前往设置。', '前往设置不再提示',
+  '王超153****2037号码保护中', '通州区富河园23号楼4单元6层461',
+  '凯思爱婷官方旗舰店官方旗舰11.11', '「全新升级第七代', '品牌第七代]亚甲基蓝热带鱼金',
+  '￥6.8', '亚甲基蓝', '鱼孔雀鱼通用无毒高效特价自...', 'x1', '综合调理', '养鱼常备',
+  '实际净含展:300n', '300ml[第七代配方]亚甲基蓝复合', '型溶液',
+  '退货包运费保障中>', '承诺达·已提前送达>', '分享商品', '联系商家', '申请售后',
+  '大促后共优惠￥5', '先用后付实付:￥0', '1天15小时后，自动确认收货并付款￥1.8',
+  '订单号:261015-521320568353024|复制',
+  '商品快照:发生交易争议时，可作为判断依据〉展开', '评价得0.5元微信打款X',
+  '更多', '申请发票', '查看物流', '确认收货',
+];
+
+// 契约：等长 + 剔除位空串，下游靠这条保持 lines[i+1] 邻居语义
+check(
+  '权限横幅：返回数组长度与入参严格相等',
+  ocr.stripPhotoPermissionBanner(PHOTO_BANNER_SAMPLE).length,
+  PHOTO_BANNER_SAMPLE.length
+);
+check(
+  '权限横幅：锚点/碎行/正文/按钮四行被置空，其余不动',
+  ocr
+    .stripPhotoPermissionBanner(PHOTO_BANNER_SAMPLE)
+    .map((s, i) => (s === '' ? i : -1))
+    .filter((i) => i >= 0),
+  [5, 6, 7, 8]
+);
+check(
+  '权限横幅：短行窗口只到锚点后第 2 行，第 3 行短行保留',
+  ocr.stripPhotoPermissionBanner(['“拼多多”仅可访问部分照片', 'AA', 'BB', '亚甲基蓝'])[3],
+  '亚甲基蓝'
+);
+check(
+  '权限横幅：未列举的弹窗变体（应用需要访问相册）也被吞',
+  ocr.stripPhotoPermissionBanner([
+    '“拼多多”仅可访问部分照片',
+    '现在',
+    '应用需要访问相册',
+    '观赏鱼杀菌盐',
+  ])[2],
+  ''
+);
+check(
+  '权限横幅：遇收件人脱敏号立即停止，不越界吞正文',
+  ocr.stripPhotoPermissionBanner([
+    '“拼多多”仅可访问部分照片',
+    '现在',
+    '王超153****2037号码保护中',
+    '观赏鱼杀菌盐',
+  ])[3],
+  '观赏鱼杀菌盐'
+);
+check(
+  '商品名：真机样本取到标题主体（权限横幅 + 营销角标）',
+  ocr.extractProductName(PHOTO_BANNER_SAMPLE),
+  '品牌第七代]亚甲基蓝热带鱼金'
+);
+check(
+  '商品名：无横幅页面行为不变（回归）',
+  ocr.extractProductName([
+    '已签收 已按承诺时间送达',
+    '您的快件已领取，收件人在[兔喜生活]',
+    '观赏鱼杀菌盐养鱼专用',
+    '¥1.80 ×1',
+  ]),
+  '观赏鱼杀菌盐养鱼专用'
+);
+check(
+  '商品名：碎句识别（短行 + 下一行句号结尾，锚点缺失时兜底）',
+  ocr.extractProductName([
+    '现在',
+    '如需修改其照片访问范围请前往设置。',
+    '观赏鱼杀菌盐',
+    '¥1.80 ×1',
+  ]),
+  '观赏鱼杀菌盐'
+);
+check(
+  '商品名：句号结尾的行本身不当商品名',
+  ocr.extractProductName(['如需修改其照片访问范围请前往设置。', '观赏鱼杀菌盐']),
+  '观赏鱼杀菌盐'
+);
+check(
+  '商品名：句号结尾的下一行不参与跨行拼接',
+  ocr.extractProductName(['观赏鱼杀菌盐', '如需修改其照片访问范围请前往设置。', '¥1.80 ×1']),
+  '观赏鱼杀菌盐'
+);
+check(
+  '商品名：省略号截断的标题仍拼接规格续行',
+  ocr.extractProductName([
+    '观赏鱼杀菌盐养鱼专用鱼缸消毒盐净化水质预防鱼病水族…',
+    '【除黄防臭杀菌】袋装1000克',
+    '¥9.7',
+  ]),
+  '观赏鱼杀菌盐养鱼专用鱼缸消毒盐净化水质预防鱼病水族…【除黄防臭杀菌】袋装1000克'
+);
+check(
+  '商品名：跳过引号开头的营销角标',
+  ocr.extractProductName(['「全新升级第七代', '品牌第七代]亚甲基蓝', '¥6.8']),
+  '品牌第七代]亚甲基蓝'
+);
+check(
+  '商品名：跳过带闭合引号的营销角标',
+  ocr.extractProductName(['「全新升级第八代」', '品牌第七代]亚甲基蓝', '¥6.8']),
+  '品牌第七代]亚甲基蓝'
+);
+check(
+  '商品名：跳过行首营销词的角标',
+  ocr.extractProductName(['爆款 亚甲基蓝', '观赏鱼杀菌盐', '¥1.8']),
+  '观赏鱼杀菌盐'
+);
+check(
+  '商品名：行内含「第七代」的正常标题不被当角标',
+  ocr.extractProductName(['品牌第七代]亚甲基蓝热带鱼金', '¥6.8']),
+  '品牌第七代]亚甲基蓝热带鱼金'
+);
+check(
+  '商品名：剥掉首尾引号',
+  ocr.extractProductName(['「亚甲基蓝」', '¥6.8']),
+  '亚甲基蓝'
+);
+check(
+  '商品名：中间引号不剥（只剥首尾）',
+  ocr.extractProductName(['亚甲基蓝「300ml」配方', '¥6.8']),
+  '亚甲基蓝「300ml」配方'
+);
+// 价格在商品卡右侧，OCR 按 Y 坐标排序时会插进标题两行中间
+check(
+  '商品名：价格行插在标题两行之间时跳过它继续拼接',
+  ocr.extractProductName([
+    '秒杀5包[300张]抽纸家用整',
+    '￥3.99',
+    '箱批发餐巾纸面巾纸实惠装擦..',
+    'x1',
+  ]),
+  '秒杀5包[300张]抽纸家用整箱批发餐巾纸面巾纸实惠装擦..'
+);
+check(
+  '商品名：价格行下方不是截断标题时不跨行拼接',
+  ocr.extractProductName(['品牌第七代]亚甲基蓝热带鱼金', '￥6.8', '亚甲基蓝']),
+  '品牌第七代]亚甲基蓝热带鱼金'
+);
+check(
+  '商品名：价格行下方是操作按钮时不跨行拼接',
+  ocr.extractProductName(['抽纸家用整箱批发', '¥3.99', '再次拼单']),
+  '抽纸家用整箱批发'
+);
+
 check(
   "抽取金额（¥符号）",
   ocr.extractAmount('实付 ¥199.00 元'),
@@ -1547,6 +1749,26 @@ check(
   '闸门：品牌词直接 pdd high',
   platformGate.detectPlatformGate('拼多多\n退款/售后').platform_conf,
   'high'
+);
+// 2026-10-31 真机：拼多多订单详情页无任何品牌字，只有底部「再次拼单」这一个专属按钮
+const pddNoBrand = platformGate.detectPlatformGate(
+  [
+    '已签收',
+    '[代收点]您的快件已投递，收件人凭取..',
+    '洁顺美JIESM洁美专卖店',
+    '秒杀5包[300张]抽纸家用整',
+    '订单号:261022-436710960673024复制',
+    '再次拼单',
+    '查看物流',
+    '确认收货',
+  ].join('\n')
+);
+check('闸门：无品牌字的订单页靠「再次拼单」判 pdd', pddNoBrand.platform, 'pdd');
+check('闸门：单条专属组件给 mid（够回填表单）', pddNoBrand.platform_conf, 'mid');
+check(
+  '闸门：证据点名「再次拼单」',
+  pddNoBrand.evidence.some(function (e) { return e.indexOf('再次拼单') > -1; }),
+  true
 );
 check(
   '闸门：淘宝页判 taobao',
@@ -2719,6 +2941,317 @@ check(
   '运势自检：请求失败时结论指向出网请求',
   fortune.buildProbeConclusion({ hasKey: true, stage: 'request-failed', error: '运势接口请求超时' }).level,
   'error'
+);
+
+// --------------------------------------------- 抖音截图抽取（douyin-extract.js）
+// 真实样本来自 D:\购物订单\抖音 的 4 张唯一截图（另 2 张 md5 相同，是重复文件）。
+// 3 张订单页 + 1 张售后页，其中「门后挂钩」两张是同一订单的售后前/售后后。
+section('抖音截图抽取');
+
+const DY_ORDER1 = [
+  '交易完成', '来自豆包', '秋歌食品店',
+  '【2斤大袋装】原味正宗大铁…', '2斤*1袋（【柴火炒】现炒现发）／酥香珍珠小花生',
+  '¥15.90 ×1', '7天无理由退货', '申请售后',
+  '实付款 ¥10.90', '订单编号 6917760968776167385 复制',
+  '交易快照 发生争议时可作为判断依据', '更多信息 展开', '联系商家', '服务保障',
+  '退货包邮券 豆包App专享，剩余3张 查看', '共3项服务 展开',
+  '你觉得本次购买的商品价格便宜、优惠力度大吗？', '更多 查看物流 删除订单 追加评价',
+].join('\n');
+
+const DY_ORDER2 = [
+  '交易完成', 'BKT官方旗舰店 抖音旗舰 直播',
+  '【七夕礼物】BKT护腰坐姿…', '(1个装) 加大黑 (100-150斤)',
+  '¥398.00 ×1', '7天无理由退货', '买后必看 操作使用指南',
+  '分享商品 再买一单 申请售后', '实付款 ¥168.00',
+  '订单编号 6955312424043485145 复制', '交易快照 发生争议时可作为判断依据',
+  '更多信息 展开', '联系商家', '服务保障', '运费险 退换货自动理赔 查看',
+  '共3项服务 展开', '更多 删除订单 追加评价 再买一单',
+].join('\n');
+
+// 同一订单的「售后前」页面：有申请售后按钮、没有退货进度
+const DY_ORDER3 = [
+  '交易完成', '包裹超48小时未取，请尽快取件',
+  '已准时送达，出示运单号后五位98123取件，…',
+  '富河园23号楼4单元6层461', '王超 186****7964 号码保护中',
+  '朋意官方旗舰店 抖音旗舰', '门后挂钩免打孔门上挂衣架置…', '云朵款7钩【黑色】',
+  '¥7.94 ×1', '7天无理由退货', '分享商品 再买一单 申请售后',
+  '实付 ¥4.36', '订单编号 6918888944623366105 复制',
+  '交易快照 发生争议时可作为判断依据', '更多信息 展开', '联系商家', '服务保障',
+  '7天无理由退货 商品完好，11月7日前 查看', '号码保护 隐藏手机号，保护隐私 查看',
+  '更多 查看物流 去评价 再买一单',
+].join('\n');
+
+// 同一订单的「售后后」页面：退货中 + 取件码
+const DY_AFTER = [
+  '退货中', '包裹超48小时未取，请尽快取件',
+  '已准时送达，出示运单号后五位98123取件，…',
+  '富河园23号楼4单元6层461', '王超 186****7964 号码保护中',
+  '朋意官方旗舰店 抖音旗舰', '门后挂钩免打孔门上挂衣架置…', '云朵款7钩【黑色】',
+  '¥7.94 ×1', '7天无理由退货', '退货进度 取件码0131 11月1日(明天)上门取件',
+  '分享商品 再买一单 退款详情', '实付 ¥4.36',
+  '订单编号 6918888944623366105 复制', '交易快照 发生争议时可作为判断依据',
+  '更多信息 展开', '联系商家', '服务保障',
+  '7天无理由退货 已申请，商家处理中 查看', '号码保护 隐藏手机号，保护隐私 查看',
+  '更多 查看物流 去评价 再买一单',
+].join('\n');
+
+function dyRun(text) {
+  const gate = platformGate.detectPlatformGate(text);
+  return pickupExtract.extractPickupStructured({
+    page_text: text,
+    platform: gate.platform,
+    platform_conf: gate.platform_conf,
+  });
+}
+
+// —— 平台判定：4 张真实样本全部应是 douyin/high
+check('抖音：订单页1 判为 douyin', platformGate.detectPlatformGate(DY_ORDER1).platform, 'douyin');
+check('抖音：订单页2 判为 douyin', platformGate.detectPlatformGate(DY_ORDER2).platform, 'douyin');
+check('抖音：订单页3（售后前）判为 douyin', platformGate.detectPlatformGate(DY_ORDER3).platform, 'douyin');
+check('抖音：售后页判为 douyin', platformGate.detectPlatformGate(DY_AFTER).platform, 'douyin');
+check('抖音：置信度为 high', platformGate.detectPlatformGate(DY_AFTER).platform_conf, 'high');
+
+// —— 页面类型
+check('抖音：订单页1 页型 order_detail', dyRun(DY_ORDER1).page_type, 'order_detail');
+check('抖音：订单页2 页型 order_detail', dyRun(DY_ORDER2).page_type, 'order_detail');
+check('抖音：订单页3 页型 order_detail', dyRun(DY_ORDER3).page_type, 'order_detail');
+check('抖音：售后页 页型 after_sale_detail', dyRun(DY_AFTER).page_type, 'after_sale_detail');
+check(
+  '抖音：「申请售后」不构成售后页判据（订单页3 仍判 order_detail）',
+  dyRun(DY_ORDER3).page_type,
+  'order_detail'
+);
+
+// —— 取件码：只有售后页有，且必须是 0131（不是运单号后五位 98123）
+check('抖音：订单页1 无取件码', dyRun(DY_ORDER1).has_pickup_code, false);
+check('抖音：订单页2 无取件码', dyRun(DY_ORDER2).has_pickup_code, false);
+check('抖音：订单页3 无取件码', dyRun(DY_ORDER3).has_pickup_code, false);
+check('抖音：售后页有取件码', dyRun(DY_AFTER).has_pickup_code, true);
+check('抖音：取件码是 0131', dyRun(DY_AFTER).pickup_code_raw, '0131');
+check('抖音：归一化码与原文一致', dyRun(DY_AFTER).pickup_code_normalized, '0131');
+check('抖音：不把运单号后五位 98123 当取件码', dyRun(DY_AFTER).pickup_code_raw === '98123', false);
+check('抖音：取件时间取到上门取件那句', dyRun(DY_AFTER).pickup_time, '11月1日(明天)上门取件');
+check('抖音：标签命中不算低置信', dyRun(DY_AFTER).low_confidence, false);
+
+// —— 订单号原样保留（19 位，不分组不补位）
+check('抖音：订单页1 订单号原样', dyRun(DY_ORDER1).order_sn, '6917760968776167385');
+check('抖音：订单页2 订单号原样', dyRun(DY_ORDER2).order_sn, '6955312424043485145');
+check('抖音：售后页订单号原样', dyRun(DY_AFTER).order_sn, '6918888944623366105');
+
+// —— 看不到的字段必须留空，不写「未知/无」
+check('抖音：看不到快递公司 → 空串', dyRun(DY_AFTER).express_company, '');
+check('抖音：看不到取件地址标签 → 空串', dyRun(DY_AFTER).address, '');
+
+// —— 共现闸门：没有「上门取件 / 快递员」就不出码
+check(
+  '抖音：缺寄件语义共现 → 不出码',
+  dyRun('抖音旗舰\n退货进度 取件码0131 11月1日上门').has_pickup_code,
+  false
+);
+check(
+  '抖音：取件码行属于运单号上下文 → 跳过',
+  dyRun('抖音旗舰\n退货进度 取件码98123 出示运单号取件').has_pickup_code,
+  false
+);
+// 这一条专门盯「收货上下文」这道判断：该行既有驿站又有上门取件，
+// 共现闸门放行，只有收货过滤能拦住它。缺了这条判断就会把驿站取货码当寄件码。
+check(
+  '抖音：驿站上下文即使有上门取件也不出码',
+  dyRun('抖音旗舰\n取件码0131 菜鸟驿站 上门取件').has_pickup_code,
+  false
+);
+check(
+  '抖音：快递柜上下文即使有快递员也不出码',
+  dyRun('抖音旗舰\n取件码7788 快递柜 快递员将上门').has_pickup_code,
+  false
+);
+check(
+  '抖音：只有运单号后五位 → 不出码',
+  dyRun('抖音旗舰\n已准时送达，出示运单号后五位98123取件').has_pickup_code,
+  false
+);
+check(
+  '抖音：6 位取件码也能取',
+  dyRun('抖音旗舰\n退货进度 取件码382915 明天上门取件').pickup_code_raw,
+  '382915'
+);
+check(
+  '抖音：标签与码之间有空格也能取',
+  dyRun('抖音旗舰\n取件码 2281 快递员上门').pickup_code_raw,
+  '2281'
+);
+check(
+  '抖音：只有退货进度、没有取件码 → 无码',
+  dyRun('抖音旗舰\n退货进度 已申请，商家处理中').has_pickup_code,
+  false
+);
+
+// —— 码值被日期数字污染（2026-10-31 真机实测，用户提供 Console rawText）
+// 原图「取件码0131 11月1日(明天)上门取件」中间有空格，但 OCR 输出把空格合并了，
+// 变成「取件码013111月1日...」。旧实现贪婪取 6 位得到 013111（把日期的 11 吃进来），
+// 且 low_confidence=false 静默填错。这里用真实 rawText 钉住。
+section('抖音取件码切分（码与日期粘连）');
+
+const DY_REAL_RAW = [
+  '退货中',
+  '包裹超48小时未取，请尽快取件',
+  '已准时送达，出示运单号后五位98123取件，',
+  '富河园23号楼4单元6层461',
+  '王超186****7964号码保护中',
+  '朋意官方旗舰店抖音旗舰',
+  '门后挂钩免打孔门上挂衣架置...￥7.94',
+  '云朵款7钩[黑色]',
+  'x1',
+  '7天无理由退货',
+  '退货进度取件码013111月1日(明天)上门取件',
+  '分享商品',
+  '再买一单',
+  '退款详情',
+  '实付',
+  '￥4.36',
+  '订单编号',
+  '6918888944623366105复制',
+].join('\n');
+
+check('真实 rawText：取件码应为 0131（不是 013111）', dyRun(DY_REAL_RAW).pickup_code_raw, '0131');
+check('真实 rawText：必须标记低置信让人核对', dyRun(DY_REAL_RAW).low_confidence, true);
+check('真实 rawText：低置信时 normalized 留空', dyRun(DY_REAL_RAW).pickup_code_normalized, '');
+check(
+  '真实 rawText：取件时间连带修正为完整日期',
+  dyRun(DY_REAL_RAW).pickup_time,
+  '11月1日(明天)上门取件'
+);
+check('真实 rawText：订单号仍正确', dyRun(DY_REAL_RAW).order_sn, '6918888944623366105');
+check('真实 rawText：页型仍是售后页', dyRun(DY_REAL_RAW).page_type, 'after_sale_detail');
+
+// 有空格时不应该被标低置信（没有被切过）
+check(
+  '有空格：0131 不标低置信',
+  dyRun('抖音旗舰\n退货进度 取件码0131 11月1日(明天)上门取件').low_confidence,
+  false
+);
+check(
+  '有空格：码值仍是 0131',
+  dyRun('抖音旗舰\n退货进度 取件码0131 11月1日(明天)上门取件').pickup_code_raw,
+  '0131'
+);
+// 时段污染同理
+check(
+  '码后粘时段：0131 不吞 11',
+  dyRun('抖音旗舰\n取件码013111:00上门取件').pickup_code_raw,
+  '0131'
+);
+check('码后粘时段：标低置信', dyRun('抖音旗舰\n取件码013111:00上门取件').low_confidence, true);
+// 真实 6 位码不能被截成 4 位（这是「改非贪婪」会踩的反向坑）
+check(
+  '真 6 位码+日期粘连：仍取 382915',
+  dyRun('抖音旗舰\n取件码38291511月1日上门取件').pickup_code_raw,
+  '382915'
+);
+check(
+  '真 6 位码+日期粘连：标低置信',
+  dyRun('抖音旗舰\n取件码38291511月1日上门取件').low_confidence,
+  true
+);
+check(
+  '真 6 位码+空格+明天：不标低置信',
+  dyRun('抖音旗舰\n取件码382915 明天上门取件').low_confidence,
+  false
+);
+// 超长数字串不是码
+check('7 位数字串不出码', dyRun('抖音旗舰\n取件码1234567 上门取件').has_pickup_code, false);
+check('8 位数字串不出码', dyRun('抖音旗舰\n取件码12345678 上门取件').has_pickup_code, false);
+check('10 位数字串不出码', dyRun('抖音旗舰\n取件码1234567890 上门取件').has_pickup_code, false);
+
+// restKind 分类（切分判据的单元级验证）
+check('restKind：完整日期', douyinExtract.restKind('11月1日(明天)'), 'full');
+check('restKind：完整时间', douyinExtract.restKind('11:00上门'), 'full');
+check('restKind：缺月份数字（被吃掉）', douyinExtract.restKind('月1日(明天)'), 'eaten');
+check('restKind：以冒号开头（被吃掉小时）', douyinExtract.restKind(':00上门'), 'eaten');
+check('restKind：数字打头（码被切短）', douyinExtract.restKind('15 明天上门'), 'digits');
+check('restKind：中文打头', douyinExtract.restKind('明天上门取件'), 'neutral');
+check('restKind：空串', douyinExtract.restKind(''), 'neutral');
+
+// 切 4 位后仍以「月」开头（无候选能构成完整日期）→ 只能标歧义，不猜
+check(
+  '每种切法都缺数字：取最短并标记歧义',
+  (function () {
+    const r = douyinExtract.codeAfterLabel('取件码1234月1日上门取件');
+    return r && r.code + '/' + r.ambiguous;
+  })(),
+  '1234/true'
+);
+
+// ---------------------------------------------------------------- L1 通用切分
+// 「码值与日期/时间被 OCR 粘在一起」不依赖平台：拼多多、抖音、以后接入的
+// 任何平台都可能遇到，所以判据抽到 code-split.js 共用（手册 §16 三层结构）。
+section('取件码切分通用规则（L1，跨平台共用）');
+
+const codeSplit = require('../cloudfunctions/api/code-split');
+
+check('L1：有空格取 4 位', codeSplit.splitCodeAfterLabel(' 2281 11月1日上门').code, '2281');
+check('L1：粘连日期切回 4 位', codeSplit.splitCodeAfterLabel('228111月1日上门').code, '2281');
+check('L1：粘连日期标歧义', codeSplit.splitCodeAfterLabel('228111月1日上门').ambiguous, true);
+check('L1：粘连时段切回 4 位', codeSplit.splitCodeAfterLabel('228111:00上门').code, '2281');
+check('L1：粘连时段标歧义', codeSplit.splitCodeAfterLabel('228111:00上门').ambiguous, true);
+check('L1：真 6 位码不截断', codeSplit.splitCodeAfterLabel('382915 明天上门').code, '382915');
+check('L1：6 位码+日期仍取 6 位', codeSplit.splitCodeAfterLabel('38291511月1日上门').code, '382915');
+check('L1：6 位码+日期标歧义', codeSplit.splitCodeAfterLabel('38291511月1日上门').ambiguous, true);
+check('L1：超长数字串返回 null', codeSplit.splitCodeAfterLabel('1234567890 上门'), null);
+check('L1：紧接字母返回 null', codeSplit.splitCodeAfterLabel('2281A'), null);
+check('L1：没有数字返回 null', codeSplit.splitCodeAfterLabel('请出示'), null);
+check('L1：前导冒号被忽略', codeSplit.splitCodeAfterLabel('：2281 上门').code, '2281');
+check('L1：rest 原样带出时间', codeSplit.splitCodeAfterLabel('013111月1日(明天)上门取件').rest, '11月1日(明天)上门取件');
+
+// 拼多多通道接入 L1 后的行为（与抖音共用同一判据，防止只有一端修好）
+section('拼多多通道接入 L1 切分');
+
+const pddSplitRun = function (text) {
+  return pickupExtract.extractPickupStructured({
+    page_text: text,
+    platform: 'pdd',
+    platform_conf: 'high',
+  });
+};
+
+check('拼多多：粘连日期不再吞 11', pddSplitRun('取件码228111月1日上门取件').pickup_code_raw, '2281');
+check('拼多多：粘连日期标低置信', pddSplitRun('取件码228111月1日上门取件').low_confidence, true);
+check('拼多多：粘连时段不再吞 11', pddSplitRun('取件码228111:00上门取件').pickup_code_raw, '2281');
+check('拼多多：有空格时不标低置信', pddSplitRun('取件码 2281 11月1日上门取件').low_confidence, false);
+check('拼多多：6 位码+日期取 6 位', pddSplitRun('取件码38291511月1日上门取件').pickup_code_raw, '382915');
+check('拼多多：8 位数字串不出码', pddSplitRun('取件码12345678 上门取件').has_pickup_code, false);
+check('拼多多：正常码不受影响', pddSplitRun('取件码 2281').pickup_code_raw, '2281');
+
+// —— 跨平台隔离（平台隔离是底线：两个方向都要断言）
+check(
+  '抖音隔离：拼多多预约成功页仍判 pdd',
+  platformGate.detectPlatformGate('退货退款详情\n寄回商品\n本次寄件服务享受官方补贴\n取件码 2281\n撤销售后').platform,
+  'pdd'
+);
+check(
+  '抖音隔离：淘宝页不判 douyin',
+  platformGate.detectPlatformGate('我的淘宝\n已买到的宝贝\n退款编号 87654321').platform,
+  'taobao'
+);
+check(
+  '抖音隔离：京东页不判 douyin',
+  platformGate.detectPlatformGate('我的京东\n服务单号 123').platform,
+  'jd'
+);
+check(
+  '抖音隔离：拼多多专属组件不会被判成 douyin',
+  platformGate.detectPlatformGate('寄回商品\n撤销售后\n月卡专享').platform,
+  'pdd'
+);
+check(
+  '抖音隔离：抖音专属组件 ≥2 才定平台，单条不定',
+  platformGate.detectPlatformGate('交易快照').platform,
+  'unknown'
+);
+check(
+  '抖音隔离：抖音专属组件 2 条判 douyin',
+  platformGate.detectPlatformGate('买后必看\n交易快照').platform,
+  'douyin'
 );
 
 // ---------------------------------------------------------------- 汇总

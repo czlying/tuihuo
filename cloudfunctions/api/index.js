@@ -272,10 +272,12 @@ const handlers = {
         returnNoLabel: extracted.returnNoLabel,
         returnReason: extracted.returnReason,
         pickupCode: extracted.pickupCode,
-        // 取件码专用输出（识别取件码入口用）：标签命中为 high，
-        // 6 位数字正则兜底为 low，此时 need_confirm=true 让用户核对
+        // ⚠️ 以下 4 个字段来自**旧通道**（ocr.analyzeOrder）。
+        // 旧通道的取件码只服务拼多多（getPickupCodeByPlatform 只实现拼多多分支），
+        // 所以抖音等未接入的平台上：pickup_code 恒为 null、pickup_confidence 恒为空、
+        // need_confirm 恒为 false，**真实取件码只在下面的 pickup.pickup_code_raw 里**。
+        // 新代码请优先读 pickup.*；这三个字段保留是为了不破坏既有调用方。
         pickup_code: extracted.pickupCode || null,
-        // confidence 与 pickup_confidence 同值：前者是「识别取件码」入口的约定字段名
         confidence: extracted.pickupConfidence || '',
         pickup_confidence: extracted.pickupConfidence || '',
         need_confirm: !!extracted.needConfirm,

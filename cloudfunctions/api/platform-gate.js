@@ -25,6 +25,7 @@
 /** 平台码 */
 const PLATFORM = {
   PDD: 'pdd',
+  DOUYIN: 'douyin',
   TAOBAO: 'taobao',
   JD: 'jd',
   EXPRESS: 'express',
@@ -98,10 +99,36 @@ const PDD_EXCLUSIVE = [
   '拼多多退货服务协议',
   '兔喜生活',
   '兔喜',
+  // 「再次拼单」是拼多多订单页底部按钮的独有措辞（淘宝/京东是「再次购买」，抖音是「再买一单」）。
+  // 2026-10-31 真机：订单详情页无任何品牌字，只此一条，靠它从 low 提到 mid。
+  '再次拼单',
 ];
 
 /** 弱信号（单独不算） */
 const WEAK_SIGNALS = ['取件码', '待取件', '快递员接单', '极兔', '韵达'];
+
+/**
+ * 抖音品牌词（命中即 douyin · high）。
+ * 来源：D:\购物订单\抖音 4 张真实截图。
+ * 「来自豆包 / 豆包App」是字节生态入口，「抖音旗舰」是店铺旁的官方标签。
+ */
+const DOUYIN_BRAND = ['抖音商城', '抖音电商', '抖音旗舰', '来自豆包', '豆包App', '抖音'];
+
+/**
+ * 抖音**专属**组件（其他平台不用这些文案）。
+ * 单条**不**定平台（拼多多页也可能出现「再买一单」），≥2 条才给 douyin · high。
+ * 反例依据：拼多多样本里出现过「再买一单」，若单条即判会成为跨平台抢占。
+ */
+const DOUYIN_EXCLUSIVE = [
+  '买后必看',
+  '操作使用指南',
+  '交易快照',
+  '发生争议时可作为判断依据',
+  '豆包App专享',
+];
+
+/** 抖音专属组件需要几条才定平台 */
+const DOUYIN_EXCLUSIVE_MIN = 2;
 
 /** 退货单号标签 */
 const RETURN_LABELS = ['退货单号', '退款单号', '售后单号', '退货编号'];
@@ -191,6 +218,7 @@ function detectPlatformGate(pageText) {
   const evidence = [];
 
   const pddBrand = countOf(t, PDD_BRAND);
+  const douyinBrand = countOf(t, DOUYIN_BRAND);
   const taobaoBrand = countOf(t, TAOBAO_BRAND);
   const jdBrand = countOf(t, JD_BRAND);
   const expressShell = countOf(t, EXPRESS_SHELL);
@@ -201,6 +229,13 @@ function detectPlatformGate(pageText) {
   if (pddBrand.length) {
     pddBrand.forEach(function (w) { evidence.push('拼多多品牌词：' + w); });
     return result(PLATFORM.PDD, CONF.HIGH, evidence);
+  }
+
+  // ── 1.5 抖音品牌词：同样必须排在「拼多多专属组件」之前
+  // 隔离底线：抖音页不能被拼多多的文案抢走，反之亦然。
+  if (douyinBrand.length) {
+    douyinBrand.forEach(function (w) { evidence.push('抖音品牌词：' + w); });
+    return result(PLATFORM.DOUYIN, CONF.HIGH, evidence);
   }
 
   // ── 2. 竞争平台品牌词：必须排在「拼多多专属组件」之前
@@ -220,6 +255,14 @@ function detectPlatformGate(pageText) {
   if (jdEntry.length >= 2) {
     jdEntry.forEach(function (w) { evidence.push('京东售后入口：' + w); });
     return result(PLATFORM.JD, CONF.MID, evidence);
+  }
+
+  // ── 2.5 抖音专属组件：≥2 条直接 high（无品牌词的真实抖音订单页靠这一组）
+  // 放在拼多多专属组件之前：抖音页里也有「交易快照」这类文案，不能被 pdd 抢走。
+  const douyinExclusive = countOf(t, DOUYIN_EXCLUSIVE);
+  if (douyinExclusive.length >= DOUYIN_EXCLUSIVE_MIN) {
+    douyinExclusive.forEach(function (w) { evidence.push('抖音专属组件：' + w); });
+    return result(PLATFORM.DOUYIN, CONF.HIGH, evidence);
   }
 
   // ── 3. 拼多多专属组件：≥2 条直接 high（无品牌词的真实售后页靠这一组）
@@ -243,6 +286,7 @@ function detectPlatformGate(pageText) {
     if (/拼多多/.test(sms)) return result(PLATFORM.PDD, CONF.HIGH, evidence);
     if (/淘宝|天猫/.test(sms)) return result(PLATFORM.TAOBAO, CONF.HIGH, evidence);
     if (/京东/.test(sms)) return result(PLATFORM.JD, CONF.HIGH, evidence);
+    if (/抖音/.test(sms)) return result(PLATFORM.DOUYIN, CONF.HIGH, evidence);
     return result(PLATFORM.UNKNOWN, CONF.LOW, evidence);
   }
 
@@ -315,6 +359,9 @@ module.exports = {
   COMPONENT_SIGNALS,
   WEAK_SIGNALS,
   PDD_EXCLUSIVE,
+  DOUYIN_BRAND,
+  DOUYIN_EXCLUSIVE,
+  DOUYIN_EXCLUSIVE_MIN,
   PDD_RETURN_NO_RE,
   PDD_ORDER_NO_RE,
   hasPddReturnNo,

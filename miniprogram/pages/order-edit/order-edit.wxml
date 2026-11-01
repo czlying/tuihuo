@@ -76,8 +76,6 @@
       </view>
     </view>
 
-    <view class="rule"></view>
-
     <!-- ------------------------------------------------ 时效 -->
     <view class="field-row">
       <view class="field field-half field-half-first">

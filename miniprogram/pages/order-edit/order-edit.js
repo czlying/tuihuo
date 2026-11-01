@@ -234,6 +234,10 @@ Page({
           appliedAtText: order.appliedAt ? dateUtil.toDateOnly(order.appliedAt) : '',
           pickedAtText: order.pickedAt ? dateUtil.toDateOnly(order.pickedAt) : '',
         });
+
+        // 记录「库里已有的凭证」快照。保存成功后用它算差集，
+        // 只清理真正被移除的图；删了图又取消编辑时不会误删仍在引用的文件。
+        this._savedVoucher = (order.voucher || []).slice();
       })
       .catch((err) => {
         this.setData({ loading: false, errorMsg: (err && err.message) || '加载失败' });
@@ -668,11 +672,43 @@ Page({
     });
   },
 
+  /**
+   * 移除一张凭证：只改本地列表，**不在这里删云端文件**。
+   *
+   * 用户可能删了图又取消编辑（不保存），此时库里记录仍引用那张图，
+   * 提前删掉会让已有凭证变破图。云端文件统一在保存成功后按差集清理，
+   * 见 _cleanupRemovedVouchers()。
+   */
   onRemoveImage(e) {
     const index = Number(e.currentTarget.dataset.index);
     const list = this.data.voucher.slice();
     list.splice(index, 1);
     this.setData({ voucher: list });
+  },
+
+  /**
+   * 保存成功后清理「被移除的凭证图」。
+   *
+   * 只清理「库里原本有、保存后不再引用」的文件；新建态没有历史凭证，
+   * 差集为空，不会误删本次刚上传的图。
+   * 删除失败只记日志，不向用户报错——残留一个孤儿文件，
+   * 比让用户以为「保存失败」而重复操作影响更小。
+   *
+   * @param {string[]} savedVoucher 实际提交的凭证列表
+   */
+  _cleanupRemovedVouchers(savedVoucher) {
+    const before = this._savedVoucher || [];
+    if (!before.length) return;
+
+    const removed = orderModel.removedVoucherFiles(before, savedVoucher);
+    if (!removed.length) return;
+
+    services.adapter
+      .getAdapter()
+      .deleteFile(removed)
+      .catch((err) => {
+        console.warn('[order-edit] 凭证图清理失败（不阻塞）', err && err.message);
+      });
   },
 
   // ---------------------------------------------------------------- 提交
@@ -795,6 +831,8 @@ Page({
         });
         this._markOrdersDirty();
         this._revertApplied = false;
+        // 落库成功后再清理被移除的凭证图，失败不阻断（孤儿文件比破图影响小）
+        this._cleanupRemovedVouchers(form.voucher);
         setTimeout(() => nav.back(), 600);
       })
       .catch((err) => {

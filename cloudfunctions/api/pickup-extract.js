@@ -20,6 +20,12 @@
  * ------------------------------------------------------------------
  */
 
+// 平台分发：抖音有自己的页型判据与取件码规则，走独立模块（平台隔离底线）
+const douyinExtract = require('./douyin-extract');
+
+// L1 通用切分：标签后「码值 + 日期/时间被 OCR 粘在一起」的拆解，平台无关
+const codeSplit = require('./code-split');
+
 /** 取件码标签（出现即强证据） */
 const CODE_LABELS = ['取件码', '提货码', '取件口令'];
 
@@ -163,6 +169,20 @@ function findLabelCode(lines, ctx) {
     if (!found) continue;
 
     const tail = lines[i].slice(found.index + found.label.length);
+
+    // 同行取码：先走 L1 切分（能处理「码值与日期被 OCR 粘在一起」），
+    // 例：`取件码0131 11月1日` 被 OCR 输出成 `取件码013111月1日` 时，
+    // 旧的 token 扫描会取到 `013111`，把日期的 11 吃进来。
+    const split = codeSplit.splitCodeAfterLabel(tail);
+    if (split) {
+      return {
+        raw: split.code,
+        lineIndex: i,
+        mode: 'label-same-line',
+        ambiguous: split.ambiguous,
+      };
+    }
+
     const sameLine = codeTokens(tail).filter(isCodeShaped);
     if (sameLine.length) {
       return { raw: sameLine[0], lineIndex: i, mode: 'label-same-line' };
@@ -480,6 +500,12 @@ function extractPickupStructured(input) {
   // 第 0 步：平台准入
   const platformCode = String((input && input.platform) || '').toLowerCase();
   const platformConf = String((input && input.platform_conf) || '').toLowerCase();
+
+  // 抖音：整条链路交给抖音专属模块，不套用下面的拼多多规则
+  if (platformCode === 'douyin') {
+    return douyinExtract.extractDouyin(input);
+  }
+
   const hasPlatformHint = !!platformCode;
   const pddRules = !hasPlatformHint || (platformCode === 'pdd' && platformConf !== 'low');
 
@@ -537,7 +563,9 @@ function extractPickupStructured(input) {
   const lowByScore = typeof score === 'number' ? score < 0.6 : false;
   // 平台没定成拼多多时，即使抽到了码也不能当高置信用
   const lowByPlatform = !pddRules;
-  const low = broken || lowByScore || lowByPlatform;
+  // L1 切分判定「数字串被切开过」：存在把日期数字吃进码的可能，必须让用户核对
+  const lowBySplit = !!hit.ambiguous;
+  const low = broken || lowByScore || lowByPlatform || lowBySplit;
 
   return {
     platform: platformCode || 'unknown',

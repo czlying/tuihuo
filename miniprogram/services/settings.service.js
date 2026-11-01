@@ -20,6 +20,36 @@ function defaultSettings() {
 }
 
 /**
+ * 查询条件里的用户范围。
+ *
+ * uid 拿得到 → 显式带 `{ uid }`，即使集合安全规则被放宽成「所有用户可读」，
+ * 也不会读到别人的设置。
+ * uid 拿不到（whoami 失败/超时）→ 返回 null，沿用原行为、靠集合的
+ * 「仅创建者可读写」规则隔离。这样不会因为一次网络抖动就把用户设置
+ * 读成默认值，观感上像「设置被清空」。
+ *
+ * @returns {Promise<object|null>}
+ */
+function scopedWhere() {
+  return getUid()
+    .then(function (uid) {
+      return uid ? { uid: uid } : null;
+    })
+    .catch(function () {
+      return null;
+    });
+}
+
+/** 取当前用户的设置记录（设计上每用户一条） */
+function firstRecord() {
+  return scopedWhere().then(function (where) {
+    const query = { orderBy: ['updatedAt', 'desc'], limit: 1 };
+    if (where) query.where = where;
+    return getAdapter().list(COLLECTIONS.SETTINGS, query);
+  });
+}
+
+/**
  * 读取设置。没有记录时返回默认值（不自动写库，
  * 等用户真的改了设置再落库，避免空写入）。
  *
@@ -28,8 +58,7 @@ function defaultSettings() {
  * 无排序时 rows[0] 是哪条不确定，会让用户读到旧设置。
  */
 function get() {
-  return getAdapter()
-    .list(COLLECTIONS.SETTINGS, { orderBy: ['updatedAt', 'desc'], limit: 1 })
+  return firstRecord()
     .then(function (rows) {
       if (!rows || !rows.length) return defaultSettings();
       return Object.assign(defaultSettings(), rows[0]);
@@ -45,8 +74,7 @@ function get() {
 function save(patch) {
   const adapter = getAdapter();
 
-  return adapter
-    .list(COLLECTIONS.SETTINGS, { orderBy: ['updatedAt', 'desc'], limit: 1 })
+  return firstRecord()
     .then(function (rows) {
     const now = new Date();
 

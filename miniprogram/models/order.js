@@ -447,6 +447,25 @@ function voucherFileIds(order) {
 }
 
 /**
+ * 对比保存前后的凭证列表，返回「被移除的文件」。
+ *
+ * 为什么不在 onRemoveImage 里直接删云端文件：
+ * 用户可能删了图又取消编辑（不保存），此时订单记录仍引用那张图，
+ * 云端删掉会让已有凭证变成破图。所以只能等保存成功后按差集清理。
+ *
+ * @param {string[]} before 保存前的凭证列表
+ * @param {string[]} after  保存后的凭证列表
+ * @returns {string[]} 不再被引用的 fileID（去空、去重）
+ */
+function removedVoucherFiles(before, after) {
+  const beforeIds = voucherFileIds({ voucher: before });
+  const afterIds = voucherFileIds({ voucher: after });
+  return beforeIds.filter(function (id) {
+    return afterIds.indexOf(id) === -1;
+  });
+}
+
+/**
  * 把 fileID 追加到凭证列表（纯函数）。
  * 识图时把截图存入凭证也走这里，保证「重复不追加、满额不覆盖」。
  *
@@ -555,6 +574,7 @@ module.exports = {
   normalizeDeadlineTime,
   matchByOrderNo,
   voucherFileIds,
+  removedVoucherFiles,
   appendVoucher,
   buildUpdatePatch,
 };

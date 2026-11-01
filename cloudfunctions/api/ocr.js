@@ -16,7 +16,7 @@
  */
 
 /** OCR 规则版本：部署后可在返回里确认云端是否已更新 */
-const OCR_RULE_VERSION = '2026-10-28.4';
+const OCR_RULE_VERSION = '2026-10-31.4';
 
 /** 商品名最大长度（与录入页商品名输入框 maxlength 保持一致） */
 const MAX_PRODUCT_NAME_LENGTH = 60;
@@ -81,6 +81,9 @@ function cleanProductName(line) {
 /** 商品标题的续行：中文、无价格/字段/状态；allowBracket=true 时允许规格括号 */
 function isProductContinuation(line, allowBracket) {
   const s = cleanProductName(line);
+  // 以中文句号结尾是「完整句子」，不是标题的续行。拍图时混进来的系统提示就是这种形态，
+  // 不加这一条会把「现在」和「如需修改其照片访问范围请前往设置。」缝成一句商品名。
+  if (/。\s*$/.test(s)) return false;
   if (s.length < 4 || s.length > 40) return false;
   if (!/[\u4e00-\u9fa5]/.test(s)) return false;
   if (!allowBracket && /[【】\[\]（）()]/.test(s)) return false; // 「美乐蒂【拆盒未拆袋】」是规格，不是标题续行
@@ -100,8 +103,150 @@ function isProductContinuation(line, allowBracket) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// 系统 UI：微信相册权限横幅
+//
+// 拍图时会弹「"拼多多"仅可访问部分照片 / 现在如需修改其照片访问范围请前往设置。」，
+// 这整块会被 OCR 一起读进文本。它是**一整块**而不是一行，逐行加关键词过滤拦不住：
+// OCR 常把正文拆成「现在」+「如需修改…」两行，前者只有两个字，对任何词表都免疫，
+// 会先被当成商品名。所以这里按「区块」整块剔掉，剔除位填空串保持行数不变。
+// ---------------------------------------------------------------------------
+
+/** 锚点行：出现其中之一，说明从这里开始是权限横幅 */
+const PHOTO_PERMISSION_ANCHOR_RE =
+  /仅可访问部分照片|可访问部分照片|允许访问所有照片|访问范围|前往设置|相册权限|相机权限|隐私保护指引/;
+
+/**
+ * 横幅正文：要求「照片/相册」与「权限/访问/范围」在同一行且相距不超过 6 个字。
+ * 不用「设置」「访问」这类泛词单独匹配——那样「桌面设置架」这种商品名会被误吞。
+ */
+const PHOTO_PERMISSION_BODY_RE =
+  /(照片|相册)[^。]{0,6}(权限|访问|范围)|(权限|访问|范围)[^。]{0,6}(照片|相册)|前往设置|隐私保护指引|不再提示/;
+
+/** 弹窗按钮：整行就是按钮文字 */
+const PHOTO_PERMISSION_BUTTON_RE = /^(前往设置|不再提示|允许|不允许|拒绝|暂不设置)$/;
+
+/** 区块硬边界：碰到这些内容说明已离开弹窗、回到页面正文（收件人/地址/价格） */
+const PHOTO_PERMISSION_STOP_RE = /[¥￥]|\*{3,}|1[3-9]\d{9}|小区|号楼|单元/;
+
+/** 最多吞 6 行：标题 1 + 正文 2 + 按钮 1 + 容错 2 */
+const PHOTO_PERMISSION_MAX_ROWS = 6;
+
+/** 锚点后前 2 行允许吞「碎行」，专治 OCR 把一句话拆成「现在」+ 正文 */
+const PHOTO_PERMISSION_SHORT_ROW_WINDOW = 2;
+
+/**
+ * 「碎行」的长度上限，取 3：被拆出来的通常是「现在」「如需」这类虚词。
+ * 不能取 6——「观赏鱼杀菌盐」正好 6 个字、无数字，会被整行吞掉，商品名直接消失
+ * （2026-10-31 实测踩到：收紧前真实商品名被吞，商品名退化成前一行「现在」）。
+ */
+const PHOTO_PERMISSION_SHORT_ROW_LENGTH = 3;
+
+/** 中文句号结尾 = 完整句子，不是商品标题 */
+const SENTENCE_END_RE = /。\s*$/;
+
+/** 纯价格行（可带 ×1 数量）。OCR 按 Y 坐标排序时，右侧价格会被插进标题两行之间 */
+const PRICE_LINE_RE = /^[¥￥]?\s*\d+(\.\d+)?\s*[×xX]?\s*\d*\s*$/;
+
+/** 营销角标：行首出现这些词且整行不长 → 是商品卡上的角标，不是标题 */
+const BADGE_HEAD_RE = /^(全新升级|官方正品|限时秒杀|买一送一|爆款|热销|新品上市|直降|到手价|券后)/;
+
+/** 整行就是一个「第X代」短语 */
+const BADGE_GEN_RE = /^第[一二三四五六七八九十]{1,2}代[^】\]]{0,6}$/;
+
+/** 行首引号（OCR 把图形角标读成引号时会出现，可能连读多个） */
+const LEAD_QUOTE_RE = /^[「"“]+/;
+
+/** 行首/行尾引号，用于最终返回值清洗；中间引号不动 */
+const WRAP_QUOTE_RE = /^[「"“]+|["”」]+$/g;
+
+/** 去掉行首引号，用于角标判断（不用于返回值） */
+function stripLeadQuote(line) {
+  return String(line || '').replace(LEAD_QUOTE_RE, '');
+}
+
+/** 去掉首尾引号，用于最终商品名（中间引号保留） */
+function stripWrapQuotes(line) {
+  return String(line || '').replace(WRAP_QUOTE_RE, '');
+}
+
+/** 是否是营销角标行 */
+function looksLikeBadge(line) {
+  const bare = stripLeadQuote(line);
+  if (BADGE_HEAD_RE.test(bare) && bare.length <= 12) return true;
+  if (BADGE_GEN_RE.test(bare)) return true;
+  return false;
+}
+
+/**
+ * 剔除微信相册权限横幅区块。
+ *
+ * 契约（下游必须遵守）：
+ *   1. 返回数组长度与入参严格相等；
+ *   2. 被剔除的位置是空串 ''；
+ *   3. 下游遍历时必须跳过空串，不得假设「非空行相邻」——行索引保持不变，
+ *      这样 extractProductName 里 lines[i+1] 的邻居语义不会漂移。
+ *
+ * 必须在既有行过滤**之前**调用：锚点行「"拼多多"仅可访问部分照片」含有平台名，
+ * 会被平台词过滤先删掉，届时锚点消失、整块防护静默失效。
+ *
+ * @param {string[]} lines
+ * @returns {string[]}
+ */
+function stripPhotoPermissionBanner(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  const out = list.slice();
+
+  for (let i = 0; i < list.length; i++) {
+    if (!PHOTO_PERMISSION_ANCHOR_RE.test(String(list[i] || ''))) continue;
+    out[i] = '';
+
+    // 锚点前面被拆出来的碎行（「现在」就在正文上一行）也属于这句提示，一起吞。
+    // 只吞 ≤3 字且无数字的行，碰到其它内容立刻停，避免往前吃掉页面标题。
+    for (let k = i - 1; k >= 0 && k >= i - PHOTO_PERMISSION_SHORT_ROW_WINDOW; k--) {
+      const prev = String(list[k] || '');
+      if (!prev) continue;
+      if (prev.length <= PHOTO_PERMISSION_SHORT_ROW_LENGTH && !/\d/.test(prev)) {
+        out[k] = '';
+        continue;
+      }
+      break;
+    }
+
+    for (let j = i + 1; j < list.length && j <= i + PHOTO_PERMISSION_MAX_ROWS - 1; j++) {
+      const row = String(list[j] || '');
+      if (!row) {
+        out[j] = '';
+        continue;
+      }
+      if (PHOTO_PERMISSION_STOP_RE.test(row)) break; // 回到页面正文
+      if (PHOTO_PERMISSION_BUTTON_RE.test(row)) {
+        out[j] = '';
+        continue;
+      }
+      if (
+        j - i <= PHOTO_PERMISSION_SHORT_ROW_WINDOW &&
+        row.length <= PHOTO_PERMISSION_SHORT_ROW_LENGTH &&
+        !/\d/.test(row)
+      ) {
+        out[j] = ''; // 「现在」这类被拆出来的碎行
+        continue;
+      }
+      if (PHOTO_PERMISSION_BODY_RE.test(row)) {
+        out[j] = '';
+        continue;
+      }
+      break;
+    }
+  }
+
+  return out;
+}
+
 /** 抽取商品名：取一条最像商品名的行（含中文、非纯数字、非金额/日期） */
-function extractProductName(lines) {
+function extractProductName(rawLines) {
+  // 第一步：整块剔除系统权限横幅（必须在行过滤之前，见函数注释）
+  const lines = stripPhotoPermissionBanner(rawLines);
   for (let i = 0; i < lines.length; i++) {
     const line = cleanProductName(lines[i]);
     // 排除明显不是商品名的行：纯金额、纯日期、纯数字、太短
@@ -185,17 +330,38 @@ function extractProductName(lines) {
       continue;
     // 跳过「纯平台名」行：整行就是一个平台名（如"淘宝"），不是商品
     if (isPlatformNameOnly(line)) continue;
+    // 商品卡上的营销角标（如「「全新升级第七代」），不是标题
+    if (looksLikeBadge(line)) continue;
+    // 以中文句号结尾的是完整句子，不是标题。与 isProductContinuation 里那条同源：
+    // 那条管「下一行不能拼」，这条管「本行不能当商品名」，锚点丢失时靠它兜底。
+    if (SENTENCE_END_RE.test(line)) continue;
+    // 碎句：短行 + 下一行以句号结尾 = 同一句话被 OCR 拆断，两行都不是标题。
+    // 兜住「锚点丢失、区块扫描没生效」的情况，与 stripPhotoPermissionBanner 互为双保险。
+    if (line.length <= 3 && !/\d/.test(line) && SENTENCE_END_RE.test(lines[i + 1] || ''))
+      continue;
     // 第一个「像商品」的中文行，作为商品名
     if (/[\u4e00-\u9fa5]/.test(line)) {
       // 标题被 OCR 拆成多行时拼接续行；首行以省略号结尾说明标题被截断，
       // 此时允许续行带规格括号，但「美乐蒂【拆盒未拆袋】」这类变体行不拼。
       const truncated = /[…]$|\.\.\.$/.test(line);
-      const next = i + 1 < lines.length ? lines[i + 1] : '';
+      // 价格行可能被 OCR 插在标题两行之间（价格在卡片右侧、Y 坐标落在两行中间），
+      // 这时跳过这一行再看下一行是否续行，否则标题只能取到前半段。
+      let nextIndex = i + 1;
+      let next = nextIndex < lines.length ? lines[nextIndex] : '';
+      if (PRICE_LINE_RE.test(next) && nextIndex + 1 < lines.length) {
+        const afterPrice = lines[nextIndex + 1];
+        // 只在「标题确实被截断」时才跨过价格行续接：候选行以省略号收尾，或首行已截断。
+        // 不加这个前提，「品牌第七代]亚甲基蓝热带鱼金」会把下方小图里的「亚甲基蓝」也拼进来。
+        if (truncated || /[…]$|\.{2,}$/.test(afterPrice)) {
+          nextIndex += 1;
+          next = afterPrice;
+        }
+      }
       const variantLine = /^[\u4e00-\u9fa5]{1,12}【/.test(next);
       if (next && isProductContinuation(next, truncated && !variantLine)) {
-        return (line + cleanProductName(next)).slice(0, MAX_PRODUCT_NAME_LENGTH);
+        return stripWrapQuotes((line + cleanProductName(next)).slice(0, MAX_PRODUCT_NAME_LENGTH));
       }
-      return line.slice(0, MAX_PRODUCT_NAME_LENGTH);
+      return stripWrapQuotes(line.slice(0, MAX_PRODUCT_NAME_LENGTH));
     }
     // 纯英文商品名（如 AirPods Pro 2）：要求含小写字母、足够长，且有空格或数字
     if (
@@ -203,7 +369,7 @@ function extractProductName(lines) {
       /^[A-Za-z][A-Za-z0-9 .+\/-]{5,39}$/.test(line) &&
       (/\s/.test(line) || line.length >= 8)
     ) {
-      return line.slice(0, MAX_PRODUCT_NAME_LENGTH);
+      return stripWrapQuotes(line.slice(0, MAX_PRODUCT_NAME_LENGTH));
     }
   }
   return '';
@@ -383,9 +549,6 @@ function extractPickupCode(text) {
 //   3) 标签存在但值没贴着（被折叠/换行错位）——按行距就近兜底，低于高置信。
 // 页面**没有**取件码标签时一律不出码：真实订单详情页只有「订单号」，
 // 而 261011-360343170593024 的前 6 位会被正则命中，误填成取件码（用户实测踩过）。
-
-/** 取件码兜底正则：4~6 位纯数字 */
-const PICKUP_CODE_RE = /\b\d{4,6}\b/g;
 
 /** 取件码标签关键词，判断「靠近哪个关键词」时用 */
 const PICKUP_LABEL_KEYWORDS = ['取件码', '取件号', '上门取件码', '寄件码'];
@@ -1055,13 +1218,15 @@ module.exports = {
   extractStatus,
   extractPickupTime,
   extractProductName,
+  stripPhotoPermissionBanner,
+  looksLikeBadge,
+  stripWrapQuotes,
   extractAmount,
   extractDate,
   extractPlatform,
   extractReturnNo,
   extractReturnReason,
   extractPickupCode,
-  PICKUP_CODE_RE,
   PICKUP_LABEL_KEYWORDS,
   hasPickupLabel,
   looksLikePickupCode,
