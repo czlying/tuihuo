@@ -1,6 +1,7 @@
 const services = require('../../services/index');
 const { fenToYuan, truncate } = require('../../utils/format');
 const fortuneCache = require('../../utils/fortune-cache');
+const localFortune = require('../../utils/fortune-local');
 const dateUtil = require('../../utils/date');
 const nav = require('../../utils/nav');
 const pageBg = require('../../utils/page-bg');
@@ -160,11 +161,12 @@ Page({
    *
    * 取数顺序：
    *   1. 本地当日缓存（落盘）——冷启动也能直接用，不再请求接口；
-   *   2. 缓存没有 → 先显示按日期兜底文案，再经云函数代理请求聚合数据
-   *      （consName=双鱼座&type=today），成功则覆盖并写入当日缓存。
+   *   2. 缓存没有 → 先显示本地文本（缺了再用按日期的静态文案池）兜住首屏，
+   *      再经云函数代理请求聚合数据（consName=双鱼座&type=today），
+   *      成功则覆盖并写入当日缓存。
    *
    * 展示：卡片文本框固定三行，超出补「…」；点卡片弹浮层看全文。
-   * Key 只存在于云函数环境变量 JUHE_KEY，前端不接触；失败/超时保持兜底，
+   * Key 只存在于云函数环境变量 JUHE_KEY，前端不接触；失败/超时停在本地文案，
    * 不白屏不报错，且失败不写缓存——下次进页面还会重试。
    */
   loadFortune() {
@@ -178,20 +180,34 @@ Page({
       return;
     }
 
-    this.setFortune(pickDailyFortune(today));
+    // 先上本地文本兜底（缺日期数据时再退到静态文案池），不等接口回来才显示。
+    // 远端成功会覆盖它并写缓存；远端失败就停在这里——本地文案比静态池更完整，
+    // 而且失败不写缓存，下次进页面还会重试远端。
+    this.setFortune(localFortune.getFortuneText(today, localFortune.SIGN) || pickDailyFortune(today));
 
     services.fortune
       .getToday()
       .then((text) => {
+        // 成功也打一行：只有失败才有日志时，日志里没有输出无法区分
+        // 「请求没发出去」和「请求成功」，排查时会被误判成没编译。
+        console.log('[fortune] 远端成功，文案长度 ' + String(text || '').length);
         if (this._unloaded) return; // 页面已卸载，不再 setData
         // 只有成功才写缓存（内存 + 落盘）：失败时下次进页面还能重试，
         // 否则会被「同日只请求一次」挡住，看起来像配置没生效
         this._fortuneDate = today;
-        fortuneCache.write(fortuneCache.make(text, today));
+        // 带上来源：缓存只认远端文案，历史遗留的本地文案记录会在 isFresh 里被判失效
+        fortuneCache.write(fortuneCache.make(text, today, fortuneCache.SOURCE_REMOTE));
         this.setFortune(text);
       })
       .catch((err) => {
         console.warn('[fortune] 运势接口不可用，使用当日兜底文案', err && err.message);
+        // 失败时给一次可见提示：只有 console 的话，人不在控制台就看不出
+        // 「远端没通」和「没编译到位」的区别（两种都显示本地文案）。
+        // 每次运行只提示一次，避免来回切页面反复弹。
+        if (!this._fortuneWarned) {
+          this._fortuneWarned = true;
+          wx.showToast({ title: '运势接口未连通', icon: 'none', duration: 2000 });
+        }
       });
   },
 

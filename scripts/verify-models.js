@@ -24,6 +24,7 @@ const settingsModel = require('../miniprogram/models/settings');
 const navUtil = require('../miniprogram/utils/nav');
 const fortuneCache = require('../miniprogram/utils/fortune-cache');
 const localFortune = require('../miniprogram/utils/fortune-local');
+const fortuneService = require('../miniprogram/services/fortune.service');
 const wxcloud = require('../miniprogram/services/adapters/wxcloud');
 
 let passed = 0;
@@ -531,24 +532,54 @@ check("运势截断：null 当作空串", format.truncate(null, 36), '');
 section('运势当日缓存（落盘）');
 check(
   "缓存：同一天且有文案 → 命中",
-  fortuneCache.isFresh({ date: '2026-10-24', text: '平稳小吉' }, '2026-10-24'),
+  fortuneCache.isFresh({ date: '2026-10-24', text: '平稳小吉', source: 'remote' }, '2026-10-24'),
   true
 );
 check(
   "缓存：跨天 → 失效",
-  fortuneCache.isFresh({ date: '2026-10-23', text: '平稳小吉' }, '2026-10-24'),
+  fortuneCache.isFresh({ date: '2026-10-23', text: '平稳小吉', source: 'remote' }, '2026-10-24'),
   false
 );
 check(
   "缓存：空文案 → 失效（兜底文案不会被当成缓存）",
-  fortuneCache.isFresh({ date: '2026-10-24', text: '' }, '2026-10-24'),
+  fortuneCache.isFresh({ date: '2026-10-24', text: '', source: 'remote' }, '2026-10-24'),
+  false
+);
+// 2026-11-10 实测：切回远端之前那次运行把本地文案写进了缓存，之后自检显示接口正常，
+// 首页却因为同日命中一直显示本地文案，请求根本发不出去。来源标记就是为了堵这个。
+check(
+  "缓存：没有来源标记的旧记录 → 失效（本地文案污染）",
+  fortuneCache.isFresh({ date: '2026-10-24', text: '宝儿，每天都是爱你' }, '2026-10-24'),
+  false
+);
+check(
+  "缓存：来源不是远端 → 失效",
+  fortuneCache.isFresh({ date: '2026-10-24', text: '宝儿，每天都是爱你', source: 'local' }, '2026-10-24'),
   false
 );
 check("缓存：没有记录 → 失效", fortuneCache.isFresh(null, '2026-10-24'), false);
 check(
-  "缓存：写入记录带日期与文案",
+  "缓存：写入记录带日期、文案与来源",
   JSON.stringify(fortuneCache.make('今日运势不错', '2026-10-24')),
-  '{"date":"2026-10-24","text":"今日运势不错"}'
+  '{"date":"2026-10-24","text":"今日运势不错","source":"remote"}'
+);
+// 数据来源由本地文本切回聚合数据（2026-11-10）。这两条锁住改动本身：
+// 开关被误改回去、或缓存键没升导致当天命中旧来源的文案，都会立刻变红。
+check('运势：数据来源开关是 remote', fortuneService.FORTUNE_SOURCE, 'remote');
+check(
+  '运势：getToday 指向远端实现',
+  fortuneService.getToday === fortuneService.getTodayFromRemote,
+  true
+);
+check(
+  '缓存：键名已升到 v5（切来源后旧缓存必须失效）',
+  fortuneCache.STORAGE_KEY,
+  'fortune_cache_v5'
+);
+check(
+  '运势：自检方法已导出（设置页「测试运势接口」依赖它）',
+  typeof fortuneService.probe,
+  'function'
 );
 
 // ------------------------------------------------------- 本地运势文本（utils/fortune-local.js）

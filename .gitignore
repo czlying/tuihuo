@@ -8,6 +8,7 @@ project.private.config.json
 
 # ===== 工具 / 编辑器本地数据 =====
 .workbuddy/
+.agents/
 .project
 .settings/
 .vscode/

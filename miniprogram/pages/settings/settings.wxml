@@ -92,6 +92,27 @@
       <text class="card-note">当前为个人主体小程序，微信暂不支持订阅消息。升级为个体工商户后可开启微信推送；在此之前，到期提醒以「首页退货名单 + 逾期提示」呈现。</text>
     </view>
 
+    <!-- 运势接口自检：排查「配了 JUHE_KEY 却一直显示兜底文案」 -->
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">运势接口</text>
+        <text class="card-hint">排查用</text>
+      </view>
+
+      <view class="row tap" bindtap="onProbeFortune">
+        <text class="row-label">{{fortuneProbing ? '测试中…' : '测试运势接口'}}</text>
+        <view class="row-right">
+          <text class="row-arrow">›</text>
+        </view>
+      </view>
+
+      <text wx:if="{{fortuneConclusion}}" class="card-note">{{fortuneConclusion}}</text>
+      <text wx:if="{{fortuneAdvice}}" class="card-note">{{fortuneAdvice}}</text>
+      <text wx:if="{{fortuneDetail}}" class="card-note">{{fortuneDetail}}</text>
+
+      <text class="card-note">会真发一次上游请求：检查 JUHE_KEY 是否读到、HTTP 状态与聚合数据错误码。只在排查时点，不影响正常展示。</text>
+    </view>
+
     <!-- 更换背景图入口已隐藏：相关逻辑（onChooseBg / onResetBg / utils/page-bg）保留，恢复时去掉下面 wx:if="{{false}}" 即可 -->
     <view wx:if="{{false}}" class="card">
       <view class="card-head">

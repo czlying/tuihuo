@@ -20,6 +20,13 @@ Page({
     subscribeFlag: false,
     buildVersion: BUILD_VERSION,
 
+    // 运势接口自检（排查「配置了却一直显示兜底文案」）
+    fortuneProbing: false,
+    fortuneProbeOk: null,
+    fortuneConclusion: '',
+    fortuneAdvice: '',
+    fortuneDetail: '',
+
     pageBg: '',
   },
 
@@ -159,6 +166,64 @@ Page({
     pageBg.clear();
     this.setData({ pageBg: '' });
     wx.showToast({ title: '已恢复默认背景', icon: 'none' });
+  },
+
+  /**
+   * 运势接口自检。
+   *
+   * 云端会把「Key 有没有读到 / 带没带空格 / HTTP 状态 / 聚合数据错误码 / 耗时」
+   * 一次摊开返回，并附一句中文结论。这里只做两件事：把结论原样显示，
+   * 再把几个关键技术字段拼成一行细节，方便截图对照。
+   */
+  onProbeFortune() {
+    if (this.data.fortuneProbing) return;
+
+    this.setData({
+      fortuneProbing: true,
+      fortuneProbeOk: null,
+      fortuneConclusion: '',
+      fortuneAdvice: '',
+      fortuneDetail: '',
+    });
+
+    services.fortune
+      .probe()
+      .then((p) => {
+        const info = p || {};
+        const res = info.conclusion || {};
+        const bits = [];
+
+        if (info.hasKey === false) bits.push('未读到 JUHE_KEY');
+        if (info.keyLength) bits.push('Key 长度 ' + info.keyLength);
+        if (info.keyHasSpace) bits.push('Key 首尾有空格');
+        if (info.httpStatus) bits.push('HTTP ' + info.httpStatus);
+        if (info.errorCode !== undefined && info.errorCode !== null && info.errorCode !== '') {
+          bits.push('错误码 ' + info.errorCode);
+        }
+        if (info.elapsedMs !== undefined) bits.push('耗时 ' + info.elapsedMs + 'ms');
+        if (info.reason) bits.push('reason=' + info.reason);
+        // 云端若已经给出结构诊断（返回类型/字段名/原文预览），一并带上
+        if (res.detail) bits.push(res.detail);
+
+        this.setData({
+          fortuneProbing: false,
+          fortuneProbeOk: res.level === 'ok',
+          // conclusion 是 { level, title, advice, detail } 对象，不是字符串；
+          // 直接塞进 wxml 会渲染成 [object Object]（2026-11-10 实测踩到）。
+          fortuneConclusion: res.title || (info.ok ? '接口正常' : '自检未通过'),
+          fortuneAdvice: res.advice || '',
+          fortuneDetail: bits.join(' · '),
+        });
+      })
+      .catch((err) => {
+        this.setData({
+          fortuneProbing: false,
+          fortuneProbeOk: false,
+          fortuneConclusion: '自检请求本身失败：' + ((err && err.message) || '未知错误'),
+          fortuneAdvice: '若云端返回 UNKNOWN_ACTION，说明 api 云函数没有重新部署。',
+          fortuneDetail: '',
+        });
+      });
   },
 
   onSave() {

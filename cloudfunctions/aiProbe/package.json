@@ -1,0 +1,9 @@
+{
+  "name": "ai-probe",
+  "version": "1.0.0",
+  "description": "云开发 AI 额度探针：确认成长计划赠送的 Token 能否在当前环境真正调用",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "4.0.1"
+  }
+}
