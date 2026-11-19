@@ -123,9 +123,114 @@ async function sendSubscribeMessage(openid, order, remainDays) {
   });
 }
 
+// ================================================================ 当天现推（方案 B）
+
+/**
+ * 首页「今日到期提醒」按钮触发的单笔现推。
+ *
+ * 与定时扫描彻底分开的两点：
+ *   1. 额度来源不同：这里用的是用户刚在首页点按钮新授权的那一条；
+ *      定时任务用的是新增订单时授权的那条（通常已被提前档消耗）。
+ *   2. 身份不信任前端：openid 只从云函数上下文取，orderId 仍要带
+ *      _openid 条件查库，避免改 orderId 就能给别人推消息。
+ *
+ * 幂等复用 lastRemindStage：推成功写 0，与定时扫描天然互斥；
+ * 43101（未授权 / 额度用完）不写标记，用户可再次授权后重试。
+ */
+async function sendDueNow(event) {
+  const orderId = String((event && event.orderId) || '');
+  const today = remind.todayInBeijing();
+  const result = {
+    action: 'sendDue',
+    orderId: orderId,
+    today: today,
+    sent: false,
+    result: '',
+    message: '',
+  };
+
+  if (!orderId) {
+    result.message = '缺少订单 ID';
+    return result;
+  }
+  if (!CONFIG.TEMPLATE_ID) {
+    result.result = 'skipped_no_template';
+    result.message = '提醒模板未配置';
+    return result;
+  }
+
+  const wxContext = cloud.getWXContext();
+  const openid = wxContext && wxContext.OPENID;
+  if (!openid) {
+    result.message = '无法确认用户身份';
+    return result;
+  }
+
+  let order = null;
+  try {
+    const res = await db
+      .collection('orders')
+      .where({ _id: orderId, _openid: openid, status: 'pending' })
+      .limit(1)
+      .get();
+    order = (res.data && res.data[0]) || null;
+  } catch (err) {
+    console.error('[timerRemind] 现推送读取订单失败 order=' + orderId, err);
+    result.message = '读取订单失败';
+    return result;
+  }
+
+  if (!order) {
+    result.message = '订单不存在或无权操作';
+    return result;
+  }
+  if (!remind.canPushDueNow(order, today)) {
+    result.result = 'skipped_already_pushed_or_not_due';
+    result.message = '仅今天到期且未推过的订单可开启提醒';
+    return result;
+  }
+
+  try {
+    await sendSubscribeMessage(order._openid, order, 0);
+    // 先发后写：写失败最多重复推一次，先写后发则会永久漏推。
+    await db
+      .collection('orders')
+      .doc(order._id)
+      .update({
+        data: {
+          lastRemindStage: 0,
+          lastRemindAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    result.sent = true;
+    result.result = 'sent';
+    result.message = '已推送到微信服务通知';
+  } catch (err) {
+    const code = (err && (err.errCode || err.code)) || '';
+    if (code === 43101) {
+      result.result = 'skipped_no_subscription';
+      result.message = '未授权或额度已用完，请在微信提示中允许接收';
+    } else {
+      result.result = 'failed';
+      result.message = (err && err.message) || '推送失败';
+      console.error('[timerRemind] 现推失败 order=' + orderId, err);
+    }
+  }
+
+  console.log('[timerRemind] 现推完成', JSON.stringify(result));
+  return result;
+}
+
 // ================================================================ 主流程
 
-exports.main = async () => {
+exports.main = async (event) => {
+  // 前端现推与定时扫描共用本云函数，但只在此处分流：
+  // 定时任务不带 action，原有扫描逻辑一行未动。
+  if (event && event.action === 'sendDue') {
+    return sendDueNow(event);
+  }
+
   const startedAt = Date.now();
   const today = remind.todayInBeijing();
 

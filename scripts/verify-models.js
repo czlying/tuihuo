@@ -25,6 +25,7 @@ const navUtil = require('../miniprogram/utils/nav');
 const fortuneCache = require('../miniprogram/utils/fortune-cache');
 const localFortune = require('../miniprogram/utils/fortune-local');
 const fortuneService = require('../miniprogram/services/fortune.service');
+const { REMIND_TEMPLATE_ID } = require('../miniprogram/constants/index');
 const wxcloud = require('../miniprogram/services/adapters/wxcloud');
 
 let passed = 0;
@@ -752,6 +753,75 @@ check(
   })(),
   [true, 7]
 );
+
+// 订阅消息模板数据：四个字段名要与公众平台选用的模板一致（thing1/time2/thing4/number5），
+// 数字类型字段必须真传数字，文案格式（今天到期 / 还剩 N 天）与 20 字截断都要锁住，
+// 否则推送会报 47003 或被截断得莫名其妙
+check(
+  '订阅消息：模板数据四个字段齐全',
+  JSON.stringify(
+    remind.buildTemplateData(
+      { productName: '观赏鱼杀菌盐', platform: '拼多多', deadline: '2026-11-20' },
+      3
+    )
+  ),
+  '{"thing1":{"value":"观赏鱼杀菌盐"},"time2":{"value":"2026-11-20"},"thing4":{"value":"拼多多 · 还剩 3 天"},"number5":{"value":3}}'
+);
+check(
+  '订阅消息：当天到期写「今天到期」',
+  remind.buildTemplateData({ productName: 'A', platform: 'B', deadline: '2026-11-16' }, 0).thing4.value,
+  'B · 今天到期'
+);
+check(
+  '订阅消息：剩余天数是数字类型（number5 传字符串会报 47003）',
+  typeof remind.buildTemplateData({ productName: 'A', platform: 'B', deadline: 'D' }, 2).number5.value,
+  'number'
+);
+check(
+  '订阅消息：商品名超 20 字截断',
+  remind.buildTemplateData({ productName: new Array(31).join('好'), platform: 'B', deadline: 'D' }, 1)
+    .thing1.value.length,
+  20
+);
+check(
+  '订阅消息：商品名缺失时有兜底文案',
+  remind.buildTemplateData({}, 1).thing1.value,
+  '退货订单'
+);
+check(
+  '订阅消息：模板 ID 常量已导出（前端授权要用它）',
+  typeof REMIND_TEMPLATE_ID,
+  'string'
+);
+
+// 当天现推（方案 B）：只看「今天到期 + 当天没推过」，不看用户的提前档设置。
+// 与 decideRemind 分开测，避免把前台现推和定时扫描的判定混成一套。
+check(
+  '当天现推：今天到期、上次推过 1 档 -> 可推',
+  remind.canPushDueNow({ deadline: TODAY, lastRemindStage: 1 }, TODAY),
+  true
+);
+check(
+  '当天现推：今天已推过（stage=0）-> 不推',
+  remind.canPushDueNow({ deadline: TODAY, lastRemindStage: 0 }, TODAY),
+  false
+);
+check(
+  '当天现推：今天到期、无历史标记 -> 可推',
+  remind.canPushDueNow({ deadline: TODAY }, TODAY),
+  true
+);
+check(
+  '当天现推：明天到期 -> 不推',
+  remind.canPushDueNow({ deadline: '2026-10-13', lastRemindStage: 1 }, TODAY),
+  false
+);
+check(
+  '当天现推：已逾期 -> 不推',
+  remind.canPushDueNow({ deadline: '2026-10-11', lastRemindStage: 1 }, TODAY),
+  false
+);
+
 check(
   "自定义档位 [7,3,1] 剩 6 天且已推过 7 档 -> 同区间不重复",
   remind.decideRemind({ deadline: '2026-10-18', lastRemindStage: 7 }, TODAY, [7, 3, 1]).shouldSend,

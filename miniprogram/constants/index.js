@@ -43,7 +43,18 @@ const DEFAULT_RETURN_DAYS = 7;
 const MAX_RETURN_DAYS = 365;
 
 /** 前端构建版本：设置页可见，用于确认是否编译到最新代码 */
-const BUILD_VERSION = '2026-11-10.4';
+const BUILD_VERSION = '2026-11-16.2';
+
+/**
+ * 订阅消息模板 ID（一次性订阅，用于「退货到期提醒」）。
+ *
+ * 留空时：保存订单不弹授权，云函数也会跳过推送 —— 功能照常，只是没有微信推送。
+ * 填法：微信公众平台 → 功能 → 订阅消息 → 选用模板，复制模板 ID 填到这里。
+ *
+ * ⚠️ 云函数 timerRemind 读的是环境变量 REMIND_TEMPLATE_ID，两处必须是同一个模板，
+ *    否则会出现「前端授权了、云端发的是另一个模板」→ 一直报额度不足（43101）。
+ */
+const REMIND_TEMPLATE_ID = 'LJtB2LZvXO6keSPzubiCwWhIbZT1KRHyaLVWQovDs24';
 
 /** 默认提醒档位：提前 3 天 / 1 天 / 当天。用户可在设置中覆盖 */
 const DEFAULT_REMIND_ADVANCE_DAYS = [3, 1, 0];
@@ -94,6 +105,7 @@ module.exports = {
   DEFAULT_RETURN_DAYS,
   MAX_RETURN_DAYS,
   BUILD_VERSION,
+  REMIND_TEMPLATE_ID,
   DEFAULT_REMIND_ADVANCE_DAYS,
   ORDER_SOURCE,
   DASHBOARD_PREVIEW_LIMIT,

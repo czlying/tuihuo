@@ -168,16 +168,47 @@ function decideRemind(order, today, advanceDays, options) {
 }
 
 /**
+ * 到期当天「现授权现推」的判定（方案 B 的前端触发入口专用）。
+ *
+ * 与 decideRemind 的区别：
+ *   decideRemind 是定时扫描用，按用户设置的提前档位决定推哪一档；
+ *   canPushDueNow 只认「今天到期且当天还没推过」，不看档位设置。
+ * 这样即使提前档把保存时授权的那条额度用掉了，当天仍能在首页
+ * 现授权拿一条新额度，把关键的那条留给到期当天。
+ *
+ * lastRemindStage = 0 表示当天档已推成功（定时扫描或现推都写 0）。
+ * 不写幂等标记的情形（43101 未授权 / 模板未配）不会挡住用户重试。
+ *
+ * @param {object} order 订单（需 deadline、lastRemindStage）
+ * @param {string} today 'YYYY-MM-DD'
+ * @returns {boolean}
+ */
+function canPushDueNow(order, today) {
+  if (!order) return false;
+  const remainDays = diffDays(today, order.deadline);
+  if (remainDays !== 0) return false;
+  return order.lastRemindStage !== 0;
+}
+
+/**
  * 组装订阅消息的 data 字段。
  * key 名必须与在微信公众平台选用的模板字段一致，否则会报 47003。
+ *
+ * 当前选用模板「订阅服务到期提醒」的字段（编号按模板库固定位置生成，
+ * 与选了哪几个关键词无关）：
+ *   thing1  订阅产品（文本）   -> 商品名
+ *   time2   到期日期（时间）   -> 退货截止日期
+ *   thing4  温馨提示（文本）   -> 平台 + 倒计时（模板无独立平台字段，合并）
+ *   number5 剩余天数（数字）   -> 剩余天数，必须传数字
  */
 function buildTemplateData(order, remainDays) {
   const countdown = remainDays === 0 ? '今天到期' : '还剩 ' + remainDays + ' 天';
+  const platform = String(order.platform || '未填平台');
   return {
     thing1: { value: String(order.productName || '退货订单').slice(0, 20) },
-    thing2: { value: String(order.platform || '未填平台').slice(0, 20) },
-    time3: { value: String(order.deadline || '') },
-    thing4: { value: countdown.slice(0, 20) },
+    time2: { value: String(order.deadline || '') },
+    thing4: { value: (platform + ' · ' + countdown).slice(0, 20) },
+    number5: { value: Number(remainDays) || 0 },
   };
 }
 
@@ -191,5 +222,6 @@ module.exports = {
   timeToMinutes,
   isQuietHour,
   decideRemind,
+  canPushDueNow,
   buildTemplateData,
 };

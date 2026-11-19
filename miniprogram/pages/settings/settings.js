@@ -1,6 +1,6 @@
 const services = require('../../services/index');
 const settingsModel = require('../../models/settings');
-const { DEFAULT_RETURN_DAYS, BUILD_VERSION } = require('../../constants/index');
+const { DEFAULT_RETURN_DAYS, BUILD_VERSION, REMIND_TEMPLATE_ID } = require('../../constants/index');
 const nav = require('../../utils/nav');
 const pageBg = require('../../utils/page-bg');
 
@@ -19,6 +19,8 @@ Page({
     quietEnd: '08:00',
     subscribeFlag: false,
     buildVersion: BUILD_VERSION,
+    // 订阅消息模板是否已配置（决定小程序会不会弹授权、云函数会不会推送）
+    remindTemplateReady: !!REMIND_TEMPLATE_ID,
 
     // 运势接口自检（排查「配置了却一直显示兜底文案」）
     fortuneProbing: false,

@@ -4,7 +4,7 @@ const dateUtil = require('../../utils/date');
 const { fenToYuan } = require('../../utils/format');
 const nav = require('../../utils/nav');
 const pageBg = require('../../utils/page-bg');
-const { DEFAULT_RETURN_DAYS, MAX_VOUCHER_COUNT } = require('../../constants/index');
+const { DEFAULT_RETURN_DAYS, MAX_VOUCHER_COUNT, REMIND_TEMPLATE_ID } = require('../../constants/index');
 
 function pad2(n) {
   return n < 10 ? '0' + n : '' + n;
@@ -807,12 +807,45 @@ Page({
   },
 
   /**
+   * 请求一次性订阅授权（到期提醒用）。
+   *
+   * 微信的规则：用户点一次「允许」= 该模板攒下**一条**下发额度，额度按模板分格记。
+   * 所以放在「新增订单保存时」请求 —— 一单一条额度，正好对应这一单到期时推一次。
+   *
+   * 三个必须注意的点：
+   *   1. 必须在用户手势的同步调用栈里调（这里紧跟点击、没 await），否则会被拒；
+   *   2. 不 await、不阻塞保存：用户拒绝也只影响推送，不能让订单存不进去；
+   *   3. 模板 ID 为空时静默跳过 —— 没配模板时功能照常，只是没有微信推送。
+   */
+  _requestSubscribe() {
+    if (!REMIND_TEMPLATE_ID) return;
+    if (typeof wx.requestSubscribeMessage !== 'function') return;
+
+    wx.requestSubscribeMessage({
+      tmplIds: [REMIND_TEMPLATE_ID],
+      success: (res) => {
+        const result = (res && res[REMIND_TEMPLATE_ID]) || '';
+        // accept / reject / ban：拒收与拉黑都是正常结果，不打扰用户
+        if (result && result !== 'accept') {
+          console.log('[subscribe] 用户未授权到期提醒：' + result);
+        }
+      },
+      fail: (err) => {
+        console.warn('[subscribe] 订阅授权失败', err && err.errMsg);
+      },
+    });
+  },
+
+  /**
    * 落库。
    * 查重放在服务层（create/update 必经）：重复时抛 DUPLICATE_ORDER_NO，
    * 这里弹窗让用户选择「仍要保存」或「返回修改」。
    */
   _saveOrder(form) {
     if (this.data.saving) return;
+
+    // 新增订单时顺手攒一条推送额度（编辑不重复打扰）
+    if (this.data.mode === 'create') this._requestSubscribe();
 
     this.setData({ saving: true, errorMsg: '' });
     wx.showLoading({ title: '保存中' });

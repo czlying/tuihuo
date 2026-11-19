@@ -51,7 +51,7 @@
         </view>
       </view>
 
-      <text class="card-note">到档位当天推送一次；已推送过的档位不会重复推。</text>
+      <text class="card-note">提前档按所选档位推送；到期当天还可在首页「今日到期提醒」现授权现推一条，不占用提前档的额度。</text>
     </view>
 
     <!-- 免打扰时段 -->
@@ -82,14 +82,18 @@
       <text class="card-note">提醒每天 08:00、14:00 各尝试一次；若时段覆盖这两个时间，当天将不再推送。</text>
     </view>
 
-    <!-- 推送状态（个人主体限制说明） -->
+    <!-- 微信推送：个人主体走「一次性订阅」，不是不支持推送 -->
     <view class="card">
       <view class="card-head">
-        <text class="card-title">推送提醒</text>
-        <text class="status {{subscribeFlag ? 'is-on' : ''}}">{{subscribeFlag ? '已开启' : '未开启'}}</text>
+        <text class="card-title">微信推送</text>
+        <text class="status {{remindTemplateReady ? 'is-on' : ''}}">{{remindTemplateReady ? '已配置' : '未配置模板'}}</text>
       </view>
 
-      <text class="card-note">当前为个人主体小程序，微信暂不支持订阅消息。升级为个体工商户后可开启微信推送；在此之前，到期提醒以「首页退货名单 + 逾期提示」呈现。</text>
+      <text class="card-note">到期提醒走微信「一次性订阅消息」，一次授权等于一条额度：提前档用记订单时授权的那条；到期当天在首页「今日到期提醒」卡片上现授权现推，消息都落在微信「服务通知」。</text>
+
+      <text class="card-note">个人主体支持一次性订阅，不支持长期订阅（后者只对政务、医疗、交通等民生类目开放）。未授权或额度用完时，提醒仍会出现在首页名单里。</text>
+
+      <text wx:if="{{!remindTemplateReady}}" class="card-note">当前未填模板 ID：小程序不会弹授权，云函数也不会推送。到公众平台「功能 → 订阅消息」选用模板后，把模板 ID 填进 constants 的 REMIND_TEMPLATE_ID，并给云函数配上同名环境变量。</text>
     </view>
 
     <!-- 运势接口自检：排查「配了 JUHE_KEY 却一直显示兜底文案」 -->

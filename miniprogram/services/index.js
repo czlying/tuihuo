@@ -15,5 +15,6 @@ module.exports = {
   settings: require('./settings.service'),
   platform: require('./platform.service'),
   fortune: require('./fortune.service'),
+  remind: require('./remind.service'),
   adapter: require('./adapters/index'),
 };

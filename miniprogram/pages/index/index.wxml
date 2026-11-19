@@ -77,6 +77,25 @@
     </view>
   </view>
 
+  <!-- 今日到期：点按钮现授权、现推送；消息落在微信「服务通知」 -->
+  <view wx:if="{{remindTemplateReady && dueTodayList.length}}" class="due-remind-card">
+    <view class="due-remind-head">
+      <text class="due-remind-title">今日到期提醒</text>
+      <text class="due-remind-hint">点一次授权，微信推一条</text>
+    </view>
+    <view wx:for="{{dueTodayList}}" wx:key="_id" class="due-remind-row">
+      <view class="due-remind-info">
+        <text wx:if="{{item.platform}}" class="due-remind-platform">{{item.platform}}</text>
+        <text class="due-remind-name">{{item.productName}}</text>
+      </view>
+      <view
+        class="due-remind-btn tap {{dueRemindBusy ? 'is-busy' : ''}}"
+        catchtap="onEnableDueRemind"
+        data-id="{{item._id}}"
+      >{{dueRemindBusy ? '处理中' : '开启今日提醒'}}</view>
+    </view>
+  </view>
+
   <view class="rule"></view>
 
   <!-- 想退货名单：犹豫中，尚未决定退 -->

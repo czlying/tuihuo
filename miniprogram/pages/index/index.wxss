@@ -739,3 +739,79 @@
   color: var(--brick);
   font-weight: 600;
 }
+
+/* ------------------------------------------------------------ 今日到期现推卡片 */
+.due-remind-card {
+  margin: 20rpx 0 4rpx;
+  padding: 22rpx 26rpx 8rpx;
+  background-color: var(--paper-raise);
+  border: 1rpx solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+.due-remind-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.due-remind-title {
+  font-size: 26rpx;
+  color: var(--ink);
+}
+
+.due-remind-hint {
+  margin-left: 12rpx;
+  font-size: 20rpx;
+  color: var(--ink-3);
+}
+
+.due-remind-row {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-top: 1rpx solid var(--line);
+}
+
+.due-remind-info {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.due-remind-platform {
+  margin-right: 12rpx;
+  padding: 4rpx 12rpx;
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: var(--ink-2);
+  background-color: rgba(242, 120, 158, 0.12);
+  border-radius: var(--radius-pill);
+}
+
+.due-remind-name {
+  font-size: 26rpx;
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.due-remind-btn {
+  flex-shrink: 0;
+  min-width: 190rpx;
+  margin-left: 16rpx;
+  padding: 16rpx 20rpx;
+  text-align: center;
+  font-size: 23rpx;
+  line-height: 1.4;
+  color: #ffffff;
+  background-color: var(--candy-1);
+  border-radius: var(--radius-pill);
+}
+
+.due-remind-btn.is-busy {
+  opacity: 0.6;
+}

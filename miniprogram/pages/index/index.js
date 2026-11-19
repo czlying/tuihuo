@@ -5,6 +5,7 @@ const localFortune = require('../../utils/fortune-local');
 const dateUtil = require('../../utils/date');
 const nav = require('../../utils/nav');
 const pageBg = require('../../utils/page-bg');
+const { REMIND_TEMPLATE_ID } = require('../../constants/index');
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -70,6 +71,11 @@ Page({
     pendingDueSoonCount: 0,
     decidedDueSoonCount: 0,
     pickupDueSoonCount: 0,
+
+    // 今日到期现推（方案 B）：模板已配才展示按钮
+    dueTodayList: [],
+    dueRemindBusy: false,
+    remindTemplateReady: !!REMIND_TEMPLATE_ID,
 
     // 已申请退货：内联展开列表（不跳新页面）
     appliedList: [],
@@ -332,6 +338,7 @@ Page({
             decidedDueSoonCount: data.decidedDueSoonCount,
             pickupDueSoonCount: data.pickupDueSoonCount,
 
+            dueTodayList: data.dueTodayList || [],
             preview: preview,
             // 搜索中保留当前结果，避免刷新瞬间闪回全量预览
             pendingDisplay: this.data.pendingKeyword ? this.data.pendingDisplay : preview,
@@ -363,6 +370,71 @@ Page({
 
   onAdd() {
     nav.go('/pages/order-edit/order-edit');
+  },
+
+  /**
+   * 今日到期提醒：先授权再现推。
+   *
+   * 微信要求 requestSubscribeMessage 在用户点击的同步调用栈里发起，
+   * 所以这里不能先 await 任何东西；授权成功回调里再调云函数现推。
+   * 一次授权 = 一条额度，只对应这一笔订单，消息落在微信「服务通知」。
+   */
+  onEnableDueRemind(e) {
+    const dataset = (e && e.currentTarget && e.currentTarget.dataset) || {};
+    const id = dataset.id || '';
+    if (!id || !REMIND_TEMPLATE_ID || this.data.dueRemindBusy) return;
+
+    if (typeof wx.requestSubscribeMessage !== 'function') {
+      wx.showToast({ title: '当前微信版本不支持订阅消息', icon: 'none' });
+      return;
+    }
+
+    wx.requestSubscribeMessage({
+      tmplIds: [REMIND_TEMPLATE_ID],
+      success: (res) => {
+        const state = (res && res[REMIND_TEMPLATE_ID]) || '';
+        // accept 才拿到额度；reject / ban 是用户正常选择，不打扰
+        if (state && state !== 'accept') {
+          wx.showToast({ title: '未授权，无法推送到微信', icon: 'none' });
+          return;
+        }
+        this._pushDueNow(id);
+      },
+      fail: (err) => {
+        console.warn('[dueRemind] 订阅授权失败', err && err.errMsg);
+        wx.showToast({ title: '授权失败，请重试', icon: 'none' });
+      },
+    });
+  },
+
+  /** 授权成功后调云端现推；seq 丢弃过期响应，避免连点后旧结果覆盖新状态 */
+  _pushDueNow(orderId) {
+    const seq = (this._dueRemindSeq = (this._dueRemindSeq || 0) + 1);
+    this.setData({ dueRemindBusy: true });
+
+    services.remind
+      .sendDueNow(orderId)
+      .then((res) => {
+        if (this._unloaded || seq !== this._dueRemindSeq) return;
+        if (res && res.ok) {
+          wx.showToast({ title: '已推送到微信服务通知', icon: 'success' });
+          this.setData({
+            dueTodayList: this.data.dueTodayList.filter((item) => item._id !== orderId),
+          });
+        } else {
+          wx.showToast({ title: (res && res.message) || '推送失败', icon: 'none' });
+        }
+      })
+      .catch((err) => {
+        if (this._unloaded || seq !== this._dueRemindSeq) return;
+        console.error('[dueRemind] 现推失败', err);
+        wx.showToast({ title: (err && err.message) || '推送失败', icon: 'none' });
+      })
+      .then(() => {
+        if (!this._unloaded && seq === this._dueRemindSeq) {
+          this.setData({ dueRemindBusy: false });
+        }
+      });
   },
 
   /** 打开设置页 */

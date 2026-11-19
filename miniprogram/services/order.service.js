@@ -573,6 +573,21 @@ function getDashboard() {
       }
     });
 
+    // 当天现推名单：只给首页按钮用，字段压到最小，不拉凭证图。
+    // lastRemindStage === 0 表示当天已推过（定时扫描或现推都写 0），不再展示按钮。
+    const dueTodayList = pendingList
+      .filter(function (o) {
+        return resolveDeadline(o) === today && o.lastRemindStage !== 0;
+      })
+      .slice(0, DASHBOARD_PREVIEW_LIMIT)
+      .map(function (o) {
+        return {
+          _id: o._id,
+          productName: o.productName || '退货订单',
+          platform: o.platform || '',
+        };
+      });
+
     appliedList.forEach(function (o) {
       const shipDeadline = orderModel.resolveShipDeadline(o);
       if (shipDeadline === today || shipDeadline === tomorrow) {
@@ -610,6 +625,9 @@ function getDashboard() {
       preview: decidedList.slice(0, DASHBOARD_PREVIEW_LIMIT),
       // 想退货名单：犹豫中的前 N 条
       consideringPreview: consideringList.slice(0, DASHBOARD_PREVIEW_LIMIT),
+
+      // 今日到期、尚未推过的一批（首页「今日到期提醒」按钮）
+      dueTodayList: dueTodayList,
     };
   });
 }
